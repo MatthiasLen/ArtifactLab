@@ -8,15 +8,23 @@ import unittest
 
 from mri_recon.metrics import (
     BaseMetric,
+    BlurEffectMetric,
     EntropyMetric,
+    GMSDMetric,
     L1Metric,
     LPIPSMetric,
     MSEMetric,
     NMSEMetric,
     PSNRMetric,
+    RMSContrastMetric,
     RMSEMetric,
+    SREMetric,
     SSIMMetric,
+    TenengradMetric,
+    UQIMetric,
 )
+from mri_recon.metrics.nonreference import BlurEffectMetric as BlurEffectMetricModuleImport
+from mri_recon.metrics.reference import UQIMetric as UQIMetricModuleImport
 
 
 HAS_NUMPY = importlib.util.find_spec("numpy") is not None
@@ -75,9 +83,29 @@ class ReferenceMetricTests(unittest.TestCase):
     def test_psnr_is_infinite_and_ssim_is_one_for_identical_images(self) -> None:
         self.assertTrue(math.isinf(PSNRMetric().apply_metric(self.reference, self.reference)))
         self.assertAlmostEqual(SSIMMetric().apply_metric(self.reference, self.reference), 1.0)
+        self.assertAlmostEqual(UQIMetric().apply_metric(self.reference, self.reference), 1.0)
+        self.assertEqual(GMSDMetric().apply_metric(self.reference, self.reference), 0.0)
+        self.assertTrue(math.isinf(SREMetric().apply_metric(self.reference, self.reference)))
 
     def test_ssim_decreases_for_different_images(self) -> None:
         self.assertLess(SSIMMetric().apply_metric(self.prediction, self.reference), 1.0)
+        self.assertLess(UQIMetric().apply_metric(self.prediction, self.reference), 1.0)
+        self.assertGreater(GMSDMetric().apply_metric(self.prediction, self.reference), 0.0)
+
+    def test_reference_module_exports_are_available(self) -> None:
+        self.assertIs(UQIMetricModuleImport, UQIMetric)
+        self.assertAlmostEqual(UQIMetricModuleImport().apply_metric(self.reference, self.reference), 1.0)
+
+    def test_sre_matches_expected_value(self) -> None:
+        expected = 10.0 * math.log10(3.5 / 0.5)
+        self.assertAlmostEqual(SREMetric().apply_metric(self.prediction, self.reference), expected)
+
+    def test_gmsd_rejects_one_dimensional_inputs(self) -> None:
+        with self.assertRaisesRegex(ValueError, "at least two dimensions"):
+            GMSDMetric().apply_metric(
+                np.asarray([0.0, 1.0, 2.0], dtype=np.float32),
+                np.asarray([0.0, 1.0, 2.0], dtype=np.float32),
+            )
 
     def test_lpips_supports_injected_backend(self) -> None:
         captured_shapes: list[tuple[tuple[int, ...], tuple[int, ...]]] = []
@@ -128,3 +156,48 @@ class NonReferenceMetricTests(unittest.TestCase):
     def test_entropy_rejects_invalid_configuration(self) -> None:
         with self.assertRaisesRegex(ValueError, "at least 2"):
             EntropyMetric(num_bins=1)
+
+    def test_nonreference_module_exports_are_available(self) -> None:
+        self.assertIs(BlurEffectMetricModuleImport, BlurEffectMetric)
+
+    def test_blur_related_metrics_distinguish_sharp_and_blurred_images(self) -> None:
+        sharp = np.asarray(
+            [
+                [0.0, 1.0, 0.0, 1.0, 0.0],
+                [0.0, 1.0, 0.0, 1.0, 0.0],
+                [0.0, 1.0, 0.0, 1.0, 0.0],
+                [0.0, 1.0, 0.0, 1.0, 0.0],
+                [0.0, 1.0, 0.0, 1.0, 0.0],
+            ],
+            dtype=np.float32,
+        )
+        blurred = np.asarray(
+            [
+                [0.25, 0.50, 0.50, 0.50, 0.25],
+                [0.25, 0.50, 0.50, 0.50, 0.25],
+                [0.25, 0.50, 0.50, 0.50, 0.25],
+                [0.25, 0.50, 0.50, 0.50, 0.25],
+                [0.25, 0.50, 0.50, 0.50, 0.25],
+            ],
+            dtype=np.float32,
+        )
+
+        self.assertGreater(BlurEffectMetric().apply_metric(blurred), BlurEffectMetric().apply_metric(sharp))
+        self.assertGreater(TenengradMetric().apply_metric(sharp), TenengradMetric().apply_metric(blurred))
+
+    def test_rms_contrast_reflects_contrast_changes(self) -> None:
+        low_contrast = np.asarray([[0.45, 0.55], [0.50, 0.50]], dtype=np.float32)
+        high_contrast = np.asarray([[0.0, 1.0], [1.0, 0.0]], dtype=np.float32)
+
+        self.assertGreater(
+            RMSContrastMetric().apply_metric(high_contrast),
+            RMSContrastMetric().apply_metric(low_contrast),
+        )
+
+    def test_blur_effect_rejects_invalid_configuration(self) -> None:
+        with self.assertRaisesRegex(ValueError, "odd integer"):
+            BlurEffectMetric(kernel_size=2)
+
+    def test_blur_effect_rejects_one_dimensional_inputs(self) -> None:
+        with self.assertRaisesRegex(ValueError, "at least two dimensions"):
+            BlurEffectMetric().apply_metric(np.asarray([0.0, 1.0, 0.0], dtype=np.float32))
