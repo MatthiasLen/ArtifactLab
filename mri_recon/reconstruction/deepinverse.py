@@ -194,15 +194,23 @@ class DeepInverseReconstructor(BaseReconstructor):
         extra_kwargs: dict[str, Any],
     ) -> list[Any]:
         calls = []
-        keyword_args = dict(extra_kwargs)
+        keyword_variants = [dict(extra_kwargs)]
         if mask is not None:
-            keyword_args["mask"] = mask
+            with_mask = dict(extra_kwargs)
+            with_mask["mask"] = mask
+            # Try explicit-mask variants first, then fallback variants without mask.
+            keyword_variants = [with_mask, dict(extra_kwargs)]
 
-        if physics is not None:
-            calls.append(lambda: model(measurement, physics=physics, **keyword_args))
-            calls.append(lambda: model(y=measurement, physics=physics, **keyword_args))
-        calls.append(lambda: model(measurement, **keyword_args))
-        calls.append(lambda: model(y=measurement, **keyword_args))
+        # for compatibility with a range of DeepInverse model signatures, try multiple plausible
+        # combinations of positional and keyword arguments. The physics argument is only included
+        # when it appears to be an MRI physics object, as some models may not expect or support it.
+        # TODO: consider a more robust way to detect this...
+        for keyword_args in keyword_variants:
+            if physics is not None:
+                calls.append(lambda keyword_args=keyword_args: model(measurement, physics=physics, **keyword_args))
+                calls.append(lambda keyword_args=keyword_args: model(y=measurement, physics=physics, **keyword_args))
+            calls.append(lambda keyword_args=keyword_args: model(measurement, **keyword_args))
+            calls.append(lambda keyword_args=keyword_args: model(y=measurement, **keyword_args))
         return calls
 
     def _to_model_input(self, data: Any) -> Any:

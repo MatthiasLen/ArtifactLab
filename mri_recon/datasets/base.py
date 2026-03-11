@@ -6,11 +6,13 @@ from abc import ABC, abstractmethod
 from copy import deepcopy
 from numbers import Real
 from pathlib import Path
-import shutil
 from statistics import fmean
+import tarfile
+import re
 from typing import Any
 from urllib.parse import unquote, urlparse
 from urllib.request import url2pathname, urlretrieve
+import zipfile
 
 
 class BaseDataset(ABC):
@@ -21,47 +23,93 @@ class BaseDataset(ABC):
     """
 
     sample_extension = ""
+    _ARCHIVE_SUFFIXES = (
+        ".zip",
+        ".tar",
+        ".tar.gz",
+        ".tgz",
+        ".tar.bz2",
+        ".tbz2",
+        ".tar.xz",
+        ".txz",
+    )
 
     def __init__(self, root_dir: str | Path) -> None:
         self.root_dir = Path(root_dir)
 
     def download(self, source: str | Path, destination: str | Path | None = None) -> Path:
-        """Download or copy dataset content into the local dataset root.
+        """Download or resolve dataset content into the local dataset root.
 
         The method accepts either a local file/directory or a remote URL. Local
-        directories are copied recursively, while files are copied directly.
+        paths are returned as-is to avoid copying large data. Remote sources are
+        downloaded into *destination* and archives are extracted there.
         """
 
         target = Path(destination) if destination is not None else self.root_dir
         target.parent.mkdir(parents=True, exist_ok=True)
 
-        parsed = urlparse(str(source))
-        if parsed.scheme and parsed.scheme != "file":
+        source_text = str(source)
+        local_source = self._resolve_local_source_path(source)
+        if local_source is None:
+            parsed = urlparse(source_text)
             filename = Path(parsed.path).name or "dataset.bin"
             target.mkdir(parents=True, exist_ok=True)
             destination_file = target / filename
-            urlretrieve(str(source), destination_file)
+            urlretrieve(source_text, destination_file)
+            if self._is_archive_path(destination_file):
+                return self._extract_archive(destination_file, target)
             return destination_file
 
+        source_path = local_source
+        if not source_path.exists():
+            raise FileNotFoundError(f"Dataset source does not exist: {source_path}")
+
+        if source_path.is_dir():
+            return source_path
+
+        if self._is_archive_path(source_path):
+            target.mkdir(parents=True, exist_ok=True)
+            return self._extract_archive(source_path, target)
+
+        return source_path
+
+    def _resolve_local_source_path(self, source: str | Path) -> Path | None:
+        if isinstance(source, Path):
+            return source
+
+        source_text = str(source)
+        if re.match(r"^[a-zA-Z]:[\\/]", source_text):
+            return Path(source_text)
+        if source_text.startswith("\\\\"):
+            return Path(source_text)
+
+        parsed = urlparse(source_text)
+        if parsed.scheme and parsed.scheme != "file":
+            return None
         if parsed.scheme == "file":
             # Convert file:// URIs into a local path correctly on Windows and POSIX.
             uri_path = url2pathname(unquote(parsed.path))
             if parsed.netloc:
                 uri_path = f"//{parsed.netloc}{uri_path}"
-            source_path = Path(uri_path)
-        else:
-            source_path = Path(source)
-        if not source_path.exists():
-            raise FileNotFoundError(f"Dataset source does not exist: {source_path}")
+            return Path(uri_path)
+        return Path(source)
 
-        if source_path.is_dir():
-            shutil.copytree(source_path, target, dirs_exist_ok=True)
-            return target
+    def _is_archive_path(self, path: Path) -> bool:
+        lower_name = path.name.lower()
+        return any(lower_name.endswith(suffix) for suffix in self._ARCHIVE_SUFFIXES)
 
-        target.mkdir(parents=True, exist_ok=True)
-        destination_file = target / source_path.name
-        shutil.copy2(source_path, destination_file)
-        return destination_file
+    def _extract_archive(self, archive_path: Path, destination_dir: Path) -> Path:
+        if zipfile.is_zipfile(archive_path):
+            with zipfile.ZipFile(archive_path, "r") as archive:
+                archive.extractall(destination_dir)
+            return destination_dir
+
+        if tarfile.is_tarfile(archive_path):
+            with tarfile.open(archive_path, "r:*") as archive:
+                archive.extractall(destination_dir, filter="data")
+            return destination_dir
+
+        raise ValueError(f"Unsupported archive format: {archive_path}")
 
     @abstractmethod
     def get_sample_path(self, sample_id: str) -> Path:

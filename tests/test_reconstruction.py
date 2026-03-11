@@ -13,8 +13,12 @@ from mri_recon.datasets import FastMRIDataset
 from mri_recon.datasets.fastmri import PACKAGED_SAMPLE_PATH
 from mri_recon.reconstruction import (
     BaseReconstructor,
+    ConjugateGradientReconstructor,
     DeepInverseReconstructor,
+    FISTAL1Reconstructor,
     LandweberReconstructor,
+    POCSReconstructor,
+    TikhonovReconstructor,
     ZeroFilledReconstructor,
 )
 from mri_recon.reconstruction.classic import _fft2c
@@ -59,6 +63,67 @@ class ClassicReconstructionTests(unittest.TestCase):
         reconstructed = LandweberReconstructor(num_iterations=5).apply_reconstruction(sample)
 
         self.assertTrue(np.allclose(reconstructed, image))
+
+    def test_conjugate_gradient_reconstruction_recovers_fully_sampled_image(self) -> None:
+        image = np.asarray([[1.0, 0.0], [0.0, 1.0]], dtype=np.float32)
+        sample = {"kspace": _fft2c(image), "mask": np.ones_like(image, dtype=bool)}
+
+        reconstructed = ConjugateGradientReconstructor(num_iterations=10).apply_reconstruction(
+            sample
+        )
+
+        self.assertTrue(np.allclose(reconstructed, image, atol=1e-6))
+
+    def test_tikhonov_reconstruction_matches_zero_filled_when_lambda_is_zero(self) -> None:
+        image = np.asarray([[1.0, 2.0], [0.5, 0.25]], dtype=np.float32)
+        sample = {"kspace": _fft2c(image), "mask": np.ones_like(image, dtype=bool)}
+
+        reconstructed = TikhonovReconstructor(l2_weight=0.0).apply_reconstruction(sample)
+
+        self.assertTrue(np.allclose(reconstructed, image, atol=1e-6))
+
+
+@unittest.skipUnless(HAS_NUMPY, "numpy runtime is required")
+class UndersampledReconstructionTests(unittest.TestCase):
+    """Validate undersampled-specific reconstruction methods."""
+
+    def test_pocs_reconstruction_runs_on_undersampled_data(self) -> None:
+        image = np.asarray([[1.0, 0.0], [0.5, 2.0]], dtype=np.float32)
+        mask = np.asarray([[1, 0], [0, 1]], dtype=bool)
+        sample = {"kspace": _fft2c(image), "mask": mask}
+
+        reconstructed = POCSReconstructor(
+            num_iterations=10,
+        ).apply_reconstruction(sample)
+
+        self.assertEqual(reconstructed.shape, image.shape)
+        self.assertTrue(np.isfinite(reconstructed).all())
+
+    def test_fista_l1_reconstruction_runs_on_undersampled_data(self) -> None:
+        image = np.asarray([[1.0, 0.0], [0.5, 2.0]], dtype=np.float32)
+        mask = np.asarray([[1, 0], [0, 1]], dtype=bool)
+        sample = {"kspace": _fft2c(image), "mask": mask}
+
+        reconstructed = FISTAL1Reconstructor(
+            num_iterations=10,
+            l1_weight=1e-2,
+        ).apply_reconstruction(sample)
+
+        self.assertEqual(reconstructed.shape, image.shape)
+        self.assertTrue(np.isfinite(reconstructed).all())
+
+    def test_fista_l1_reconstruction_is_not_all_zero_for_small_scale_data(self) -> None:
+        image = np.asarray([[1.0, 0.0], [0.5, 2.0]], dtype=np.float32) * 1e-4
+        mask = np.asarray([[1, 0], [0, 1]], dtype=bool)
+        sample = {"kspace": _fft2c(image), "mask": mask}
+
+        reconstructed = FISTAL1Reconstructor(
+            num_iterations=15,
+            l1_weight=1e-3,
+            step_size=1.0,
+        ).apply_reconstruction(sample)
+
+        self.assertGreater(float(np.max(np.abs(reconstructed))), 0.0)
 
 
 class _FakeModel:

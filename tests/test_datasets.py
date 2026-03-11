@@ -9,6 +9,7 @@ import importlib.util
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from threading import Thread
+import zipfile
 import unittest
 
 from mri_recon.datasets import BaseDataset, FastMRIDataset
@@ -119,6 +120,59 @@ class DatasetBaseTests(unittest.TestCase):
             self.assertAlmostEqual(sum(flattened), 0.0, places=7)
             self.assertAlmostEqual(flattened[0], -1.3416407864998738)
             self.assertAlmostEqual(flattened[-1], 1.3416407864998738)
+
+    def test_download_returns_local_directory_without_copying(self) -> None:
+        class DummyDataset(BaseDataset):
+            def get_sample_path(self, sample_id: str) -> Path:
+                return Path(sample_id)
+
+            def read_sample(self, sample_id: str, slice_index: int = 0) -> dict[str, object]:
+                return {"sample_id": sample_id}
+
+        with TemporaryDirectory() as source_directory, TemporaryDirectory() as root_directory:
+            source_path = Path(source_directory)
+            marker = source_path / "example.txt"
+            marker.write_text("hello", encoding="utf-8")
+
+            dataset = DummyDataset(root_directory)
+            resolved = dataset.download(source_path)
+
+            self.assertEqual(resolved.resolve(), source_path.resolve())
+            self.assertFalse((Path(root_directory) / "example.txt").exists())
+
+    def test_download_extracts_local_zip_archive(self) -> None:
+        class DummyDataset(BaseDataset):
+            def get_sample_path(self, sample_id: str) -> Path:
+                return Path(sample_id)
+
+            def read_sample(self, sample_id: str, slice_index: int = 0) -> dict[str, object]:
+                return {"sample_id": sample_id}
+
+        with TemporaryDirectory() as source_directory, TemporaryDirectory() as root_directory:
+            source_path = Path(source_directory)
+            archive_path = source_path / "dataset.zip"
+            payload_name = "nested/sample.txt"
+
+            with zipfile.ZipFile(archive_path, "w") as archive:
+                archive.writestr(payload_name, "payload")
+
+            dataset = DummyDataset(root_directory)
+            destination = Path(root_directory) / "downloaded"
+            resolved = dataset.download(archive_path, destination=destination)
+
+            self.assertEqual(resolved.resolve(), destination.resolve())
+            self.assertTrue((destination / payload_name).exists())
+
+    def test_fastmri_download_rejects_dicom_source(self) -> None:
+        with TemporaryDirectory() as source_directory, TemporaryDirectory() as root_directory:
+            source_path = Path(source_directory)
+            dicom_file = source_path / "example.dcm"
+            dicom_file.write_bytes(b"DICM")
+
+            dataset = FastMRIDataset(root_dir=root_directory, split="test", challenge="singlecoil")
+
+            with self.assertRaisesRegex(ValueError, "DICOM"):
+                dataset.download(source=source_path)
 
 
 @unittest.skipUnless(HAS_H5PY and HAS_NUMPY and HAS_FASTMRI, "fastmri runtime is required")

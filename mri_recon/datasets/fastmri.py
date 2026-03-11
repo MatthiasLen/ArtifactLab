@@ -5,6 +5,8 @@ from __future__ import annotations
 import os
 from pathlib import Path
 from typing import Any, Callable
+from urllib.parse import unquote, urlparse
+from urllib.request import url2pathname
 
 from .base import BaseDataset
 
@@ -17,6 +19,11 @@ try:
     from fastmri.data import SliceDataset
 except ImportError:  # pragma: no cover - exercised via runtime guard.
     SliceDataset = None
+
+try:
+    from pydicom.misc import is_dicom
+except ImportError:  # pragma: no cover - exercised via runtime guard.
+    is_dicom = None
 
 
 DEFAULT_FASTMRI_ROOT = Path.home() / ".cache" / "mri_recon" / "fastmri"
@@ -34,6 +41,7 @@ class FastMRIDataset(BaseDataset):
     """
 
     sample_extension = ".h5"
+    supported_sample_extensions = (".h5", ".hdf5")
 
     def __init__(
         self,
@@ -98,7 +106,7 @@ class FastMRIDataset(BaseDataset):
         source: str | Path | None = None,
         destination: str | Path | None = None,
     ) -> Path:
-        """Download or copy FastMRI data into the configured split directory."""
+        """Download FastMRI data or bind to local data without copying."""
 
         actual_source = source or self.default_sample_source
         if actual_source is None:
@@ -107,15 +115,22 @@ class FastMRIDataset(BaseDataset):
                 f"{DEFAULT_FASTMRI_SAMPLE_ENV}."
             )
 
-        target = Path(destination) if destination is not None else self.data_dir
-        downloaded_path = super().download(source=actual_source, destination=target)
+        local_source = self._resolve_local_source(actual_source)
+        if local_source is not None and local_source.exists() and not self._is_archive_path(local_source):
+            downloaded_path = local_source
+        else:
+            target = Path(destination) if destination is not None else self.data_dir
+            downloaded_path = super().download(source=actual_source, destination=target)
+
+        self.data_dir = self._resolve_data_dir(downloaded_path)
         self._initialize_slice_dataset()
         return downloaded_path
 
     def get_sample_path(self, sample_id: str) -> Path:
         """Return the HDF5 path for a FastMRI volume in the configured split."""
 
-        sample_name = sample_id if sample_id.endswith(self.sample_extension) else (
+        normalized_sample_id = sample_id.lower()
+        sample_name = sample_id if normalized_sample_id.endswith(self.supported_sample_extensions) else (
             f"{sample_id}{self.sample_extension}"
         )
         return self.data_dir / sample_name
@@ -203,8 +218,71 @@ class FastMRIDataset(BaseDataset):
         """Return whether the split directory currently contains HDF5 volumes."""
 
         return self.data_dir.exists() and any(
-            path.suffix == self.sample_extension for path in self.data_dir.iterdir()
+            self._is_volume_file(path) for path in self.data_dir.iterdir()
         )
+
+    def _resolve_local_source(self, source: str | Path) -> Path | None:
+        parsed = urlparse(str(source))
+        if parsed.scheme and parsed.scheme != "file":
+            return None
+        if parsed.scheme == "file":
+            uri_path = url2pathname(unquote(parsed.path))
+            if parsed.netloc:
+                uri_path = f"//{parsed.netloc}{uri_path}"
+            return Path(uri_path)
+        return Path(source)
+
+    def _resolve_data_dir(self, resolved_path: Path) -> Path:
+        if resolved_path.is_file():
+            if self._is_volume_file(resolved_path):
+                return resolved_path.parent
+            if self._is_dicom_file(resolved_path):
+                raise ValueError(
+                    "DICOM input was detected, but FastMRIDataset expects raw "
+                    "FastMRI k-space .h5/.hdf5 files. Convert DICOM images to a "
+                    "supported k-space dataset before using this connector."
+                )
+            raise FileNotFoundError(f"FastMRI source file is not an HDF5 volume: {resolved_path}")
+
+        if any(self._is_volume_file(path) for path in resolved_path.iterdir()):
+            return resolved_path
+
+        if self._contains_dicom(resolved_path):
+            raise ValueError(
+                "DICOM files were detected, but FastMRIDataset expects raw "
+                "FastMRI k-space .h5/.hdf5 files. Convert DICOM images to a "
+                "supported k-space dataset before using this connector."
+            )
+
+        nested_directories = sorted(
+            (path for path in resolved_path.rglob("*") if path.is_dir()),
+            key=lambda candidate: len(candidate.parts),
+        )
+        for directory in nested_directories:
+            if any(self._is_volume_file(path) for path in directory.iterdir()):
+                return directory
+
+        raise FileNotFoundError(
+            f"No FastMRI .h5 files were found in extracted source: {resolved_path}"
+        )
+
+    def _is_volume_file(self, path: Path) -> bool:
+        return path.is_file() and path.suffix.lower() in self.supported_sample_extensions
+
+    def _is_dicom_file(self, path: Path) -> bool:
+        if not path.is_file():
+            return False
+        if path.suffix.lower() == ".dcm":
+            return True
+        if is_dicom is None:
+            return False
+        return bool(is_dicom(str(path)))
+
+    def _contains_dicom(self, root: Path) -> bool:
+        for file_path in root.rglob("*"):
+            if self._is_dicom_file(file_path):
+                return True
+        return False
 
     def _normalize_slice_sample(self, sample: tuple[Any, Any, Any, dict[str, Any], str, int]) -> dict[str, Any]:
         """Convert the upstream tuple return value into the package dictionary format."""
