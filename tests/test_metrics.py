@@ -55,6 +55,10 @@ class ReferenceMetricTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "reference image"):
             L1Metric().apply_metric(self.prediction)
 
+    def test_reference_metric_rejects_none_prediction(self) -> None:
+        with self.assertRaisesRegex(ValueError, "must not be None"):
+            L1Metric().apply_metric(None, self.reference)
+
     def test_reference_metric_rejects_shape_mismatch(self) -> None:
         with self.assertRaisesRegex(ValueError, "same shape"):
             SSIMMetric().apply_metric(self.prediction, self.reference[:, :1])
@@ -98,6 +102,14 @@ class ReferenceMetricTests(unittest.TestCase):
             metric.apply_metric(
                 np.zeros((1, 1, 1, 1, 1), dtype=np.float32),
                 np.zeros((1, 1, 1, 1, 1), dtype=np.float32),
+            )
+
+    def test_lpips_rejects_invalid_channel_configuration(self) -> None:
+        metric = LPIPSMetric(backend=lambda prediction, reference: 0.0)
+        with self.assertRaisesRegex(ValueError, "one or three channels"):
+            metric.apply_metric(
+                np.zeros((2, 2, 2), dtype=np.float32),
+                np.zeros((2, 2, 2), dtype=np.float32),
             )
 
 

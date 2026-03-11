@@ -60,11 +60,11 @@ class BaseMetric(ABC):
         if isinstance(reference, dict):
             reference = self._require_field(reference, self.reference_field)
 
+        if prediction is None:
+            raise ValueError("Metric input prediction must not be None")
         prediction_array = self.to_numpy(prediction)
         reference_array = self.to_numpy(reference) if reference is not None else None
 
-        if prediction_array is None:
-            raise ValueError("Metric input prediction must not be None")
         self._validate_array(prediction_array, "prediction")
 
         if require_reference:

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from importlib import import_module
 from math import inf, log10, sqrt
 from typing import Any, Callable
 
@@ -161,7 +162,11 @@ class EntropyMetric(BaseMetric):
 
 
 class LPIPSMetric(BaseMetric):
-    """Learned perceptual image patch similarity with optional backend injection."""
+    """Learned perceptual image patch similarity with optional backend injection.
+
+    Inputs are reshaped into batched channel-first tensors and normalized to the
+    ``[-1, 1]`` range expected by common LPIPS backends.
+    """
 
     def __init__(
         self,
@@ -187,10 +192,14 @@ class LPIPSMetric(BaseMetric):
         if array.ndim == 2:
             array = array[None, :, :]
         elif array.ndim == 3:
-            if array.shape[0] not in (1, 3) and array.shape[-1] in (1, 3):
+            if array.shape[0] not in (1, 3):
+                if array.shape[-1] not in (1, 3):
+                    raise ValueError("LPIPS expects one or three channels")
                 array = np.moveaxis(array, -1, 0)
         elif array.ndim == 4:
-            if array.shape[1] not in (1, 3) and array.shape[-1] in (1, 3):
+            if array.shape[1] not in (1, 3):
+                if array.shape[-1] not in (1, 3):
+                    raise ValueError("LPIPS expects one or three channels")
                 array = np.moveaxis(array, -1, 1)
         else:
             raise ValueError("LPIPS expects 2D, 3D or 4D image tensors")
@@ -208,6 +217,9 @@ class LPIPSMetric(BaseMetric):
         minimum = float(np.min(array))
         maximum = float(np.max(array))
         if minimum < -1.0 or maximum > 1.0:
+            # LPIPS backends expect image tensors normalized to [-1, 1]. For
+            # constant images outside that range, returning zeros preserves the
+            # "no contrast" signal without introducing artificial differences.
             if maximum == minimum:
                 array = np.zeros_like(array)
             else:
@@ -217,7 +229,19 @@ class LPIPSMetric(BaseMetric):
     def _resolve_backend(self) -> Callable[[Any, Any], float]:
         try:
             import torch
-            from torchmetrics.image.lpip import LearnedPerceptualImagePatchSimilarity
+            torchmetrics_module = None
+            for module_name in ("torchmetrics.image.lpip", "torchmetrics.image.lpips"):
+                try:
+                    torchmetrics_module = import_module(module_name)
+                    break
+                except ImportError:
+                    continue
+            if torchmetrics_module is None:
+                raise ImportError
+            LearnedPerceptualImagePatchSimilarity = getattr(
+                torchmetrics_module,
+                "LearnedPerceptualImagePatchSimilarity",
+            )
 
             metric = LearnedPerceptualImagePatchSimilarity(net_type=self.net_type, normalize=True)
 
