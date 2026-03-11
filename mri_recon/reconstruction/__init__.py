@@ -8,12 +8,14 @@ from .classic import (
     ZeroFilledReconstructor,
 )
 from .deepinverse import DeepInverseReconstructor
+from .deepinverse import DeepInverseRAMReconstructor
 from .undersampled import FISTAL1Reconstructor, POCSReconstructor
 
 __all__ = [
     "BaseReconstructor",
     "ConjugateGradientReconstructor",
     "DeepInverseReconstructor",
+    "DeepInverseRAMReconstructor",
     "FISTAL1Reconstructor",
     "LandweberReconstructor",
     "POCSReconstructor",

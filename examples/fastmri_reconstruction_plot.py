@@ -15,7 +15,7 @@ import numpy as np
 from mri_recon.datasets.fastmri import FastMRIDataset
 from mri_recon.reconstruction import (
     ConjugateGradientReconstructor,
-    DeepInverseReconstructor,
+    DeepInverseRAMReconstructor,
     FISTAL1Reconstructor,
     LandweberReconstructor,
     POCSReconstructor,
@@ -30,6 +30,7 @@ DEFAULT_SOURCE = (
     / "singlecoil_test"
 )
 REPORT_DIR = Path("reports") / "fastmri_reconstruction_plot"
+DEFAULT_RANDOM_SEED = 7
 
 
 def parse_args() -> argparse.Namespace:
@@ -45,6 +46,15 @@ def parse_args() -> argparse.Namespace:
         type=int,
         default=3,
         help="How many random volumes to reconstruct and display.",
+    )
+    parser.add_argument(
+        "--seed",
+        type=int,
+        default=DEFAULT_RANDOM_SEED,
+        help=(
+            "Random seed used to pick sample volumes. "
+            "Use the same value to reproduce the same sample order."
+        ),
     )
     return parser.parse_args()
 
@@ -99,7 +109,8 @@ def main() -> None:
     dataset.download(source=args.source)
     all_sample_ids = dataset.sample_ids()
     sample_count = min(args.num_samples, len(all_sample_ids))
-    sample_ids = random.sample(all_sample_ids, k=sample_count)
+    rng = random.Random(args.seed)
+    sample_ids = rng.sample(all_sample_ids, k=sample_count)
     if not sample_ids:
         raise RuntimeError(
             f"No FastMRI sample volumes found in {dataset.data_dir}"
@@ -112,7 +123,7 @@ def main() -> None:
     tikhonov = TikhonovReconstructor(l2_weight=1e-3)
     pocs = POCSReconstructor(num_iterations=25, l1_weight=1e-3)
     fista_l1 = FISTAL1Reconstructor(num_iterations=25, l1_weight=1e-3)
-    deepinverse = DeepInverseReconstructor("ram")
+    deepinverse = DeepInverseRAMReconstructor()
 
     try:
         import matplotlib.pyplot as plt
@@ -175,7 +186,7 @@ def main() -> None:
             ram_scale = 1.0
         deepinverse_sample["kspace"] = np.asarray(sample["kspace"]) / ram_scale
 
-        physics = DeepInverseReconstructor.build_mri_physics(
+        physics = DeepInverseRAMReconstructor.build_mri_physics(
             deepinverse_sample
         )
         deepinverse_raw = deepinverse.apply_reconstruction(

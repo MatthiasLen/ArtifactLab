@@ -15,6 +15,7 @@ from mri_recon.reconstruction import (
     BaseReconstructor,
     ConjugateGradientReconstructor,
     DeepInverseReconstructor,
+    DeepInverseRAMReconstructor,
     FISTAL1Reconstructor,
     LandweberReconstructor,
     POCSReconstructor,
@@ -157,6 +158,50 @@ class DeepInverseReconstructionTests(unittest.TestCase):
             DeepInverseReconstructor.available_algorithms(),
             ("ram", "varnet", "modl", "optim_builder"),
         )
+
+    @unittest.skipUnless(HAS_NUMPY, "numpy runtime is required")
+    def test_ram_reconstructor_apply_reconstruction_uses_injected_model(self) -> None:
+        model = _FakePhysicsModel()
+        sample = {
+            "kspace": np.asarray([[1.0, 2.0]], dtype=np.float32),
+            "mask": None,
+        }
+
+        reconstructed = DeepInverseRAMReconstructor(
+            model=model,
+            physics=3.0,
+        ).apply_reconstruction(sample)
+
+        self.assertTrue(model.eval_called)
+        reconstructed_array = np.asarray(reconstructed)
+        self.assertTrue(
+            np.allclose(
+                reconstructed_array,
+                np.asarray(sample["kspace"], dtype=np.float32) * 3.0,
+            )
+        )
+
+    def test_ram_reconstructor_build_model_uses_pretrained_by_default(self) -> None:
+        captured_kwargs: dict[str, object] = {}
+
+        class _RAMFactoryModel(_FakeModel):
+            def __init__(self, **kwargs) -> None:  # noqa: ANN003 - test double
+                captured_kwargs.update(kwargs)
+                super().__init__(**kwargs)
+
+        fake_module = ModuleType("deepinv")
+        fake_module.models = SimpleNamespace(RAM=_RAMFactoryModel)
+        original_module = sys.modules.get("deepinv")
+
+        try:
+            sys.modules["deepinv"] = fake_module
+            DeepInverseRAMReconstructor().build_model()
+            self.assertEqual(captured_kwargs.get("pretrained"), True)
+        finally:
+            if original_module is None:
+                sys.modules.pop("deepinv", None)
+            else:
+                sys.modules["deepinv"] = original_module
 
     def test_available_pretrained_models_are_exposed(self) -> None:
         self.assertEqual(
