@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from copy import deepcopy
+from numbers import Real
 from pathlib import Path
 import shutil
 from statistics import fmean
@@ -107,8 +108,10 @@ class BaseDataset(ABC):
     def _flatten_numeric_values(self, data: Any) -> list[float]:
         """Flatten nested lists and tuples into a flat list of floats."""
 
-        if isinstance(data, (int, float)):
+        if isinstance(data, Real):
             return [float(data)]
+        if hasattr(data, "tolist") and not isinstance(data, (str, bytes)):
+            return self._flatten_numeric_values(data.tolist())
         if isinstance(data, (list, tuple)):
             values: list[float] = []
             for item in data:
@@ -119,8 +122,15 @@ class BaseDataset(ABC):
     def _map_nested_numeric(self, data: Any, transform_fn: Any) -> Any:
         """Apply *transform_fn* to all numeric values while preserving nesting."""
 
-        if isinstance(data, (int, float)):
+        if isinstance(data, Real):
             return transform_fn(float(data))
+        if hasattr(data, "tolist") and not isinstance(data, (str, bytes)):
+            try:
+                import numpy as np
+            except ImportError:  # pragma: no cover - numpy is optional in the base layer.
+                return self._map_nested_numeric(data.tolist(), transform_fn)
+
+            return np.asarray(self._map_nested_numeric(data.tolist(), transform_fn))
         if isinstance(data, list):
             return [self._map_nested_numeric(item, transform_fn) for item in data]
         if isinstance(data, tuple):
