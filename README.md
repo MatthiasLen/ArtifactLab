@@ -31,3 +31,38 @@ dataset.download()  # uses the built-in sample source when no official data is p
 sample = dataset[0]
 pixel_matrix = dataset.to_numpy(sample, field="target")
 ```
+
+## Reconstruction interfaces
+
+The package also exposes a compact `mri_recon.reconstruction` module with:
+
+- `BaseReconstructor`: abstract interface exposing `apply_reconstruction`.
+- `ZeroFilledReconstructor`: centered inverse FFT baseline for Cartesian MRI.
+- `LandweberReconstructor`: small iterative least-squares reconstructor.
+- `DeepInverseReconstructor`: optional wrapper around DeepInverse `VarNet`,
+  `MoDL`, and `deepinv.optim.optim_builder`.
+
+Example:
+
+```python
+from mri_recon.datasets import FastMRIDataset
+from mri_recon.reconstruction import ZeroFilledReconstructor
+
+dataset = FastMRIDataset(split="val", challenge="singlecoil")
+dataset.download()
+
+sample = dataset[0]
+image = ZeroFilledReconstructor().apply_reconstruction(sample)
+```
+
+To use `DeepInverseReconstructor`, install the optional DeepInverse dependency
+from `requirements.txt` and pass a DeepInverse physics operator when needed:
+
+```python
+import deepinv as dinv
+from mri_recon.reconstruction import DeepInverseReconstructor
+
+physics = dinv.physics.MRI(mask=mask, img_size=img_size)
+reconstructor = DeepInverseReconstructor("varnet", physics=physics)
+reconstruction = reconstructor.apply_reconstruction({"kspace": measurement})
+```
