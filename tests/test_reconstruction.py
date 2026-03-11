@@ -19,6 +19,7 @@ from mri_recon.reconstruction import (
     FISTAL1Reconstructor,
     LandweberReconstructor,
     POCSReconstructor,
+    TVPDHGReconstructor,
     TikhonovReconstructor,
     ZeroFilledReconstructor,
 )
@@ -125,6 +126,37 @@ class UndersampledReconstructionTests(unittest.TestCase):
         ).apply_reconstruction(sample)
 
         self.assertGreater(float(np.max(np.abs(reconstructed))), 0.0)
+
+    def test_tv_pdhg_reconstruction_runs_on_undersampled_data(self) -> None:
+        image = np.asarray([[1.0, 0.0], [0.5, 2.0]], dtype=np.float32)
+        mask = np.asarray([[1, 0], [0, 1]], dtype=bool)
+        sample = {"kspace": _fft2c(image), "mask": mask}
+
+        reconstructed = TVPDHGReconstructor(
+            num_iterations=20,
+            tv_weight=1e-3,
+        ).apply_reconstruction(sample)
+
+        self.assertEqual(reconstructed.shape, image.shape)
+        self.assertTrue(np.isfinite(reconstructed).all())
+
+    def test_tv_pdhg_matches_zero_filled_for_fully_sampled_data(self) -> None:
+        image = np.asarray([[1.0, 2.0], [0.5, 0.25]], dtype=np.float32)
+        full_mask = np.ones_like(image, dtype=bool)
+        sample = {"kspace": _fft2c(image), "mask": full_mask}
+
+        zero_filled = ZeroFilledReconstructor().apply_reconstruction(sample)
+        tv_reconstructed = TVPDHGReconstructor(
+            num_iterations=40,
+            tv_weight=1e-5,
+            tau=0.2,
+            sigma=0.2,
+        ).apply_reconstruction(sample)
+
+        relative_error = np.linalg.norm(tv_reconstructed - zero_filled) / (
+            np.linalg.norm(zero_filled) + 1e-12
+        )
+        self.assertLess(float(relative_error), 0.05)
 
 
 class _FakeModel:

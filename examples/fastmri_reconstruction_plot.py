@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import argparse
 from pathlib import Path
-import random
 
 import numpy as np
 
@@ -19,6 +18,7 @@ from mri_recon.reconstruction import (
     FISTAL1Reconstructor,
     LandweberReconstructor,
     POCSReconstructor,
+    TVPDHGReconstructor,
     TikhonovReconstructor,
     ZeroFilledReconstructor,
 )
@@ -30,7 +30,6 @@ DEFAULT_SOURCE = (
     / "singlecoil_test"
 )
 REPORT_DIR = Path("reports") / "fastmri_reconstruction_plot"
-DEFAULT_RANDOM_SEED = 7
 
 
 def parse_args() -> argparse.Namespace:
@@ -45,16 +44,7 @@ def parse_args() -> argparse.Namespace:
         "--num-samples",
         type=int,
         default=3,
-        help="How many random volumes to reconstruct and display.",
-    )
-    parser.add_argument(
-        "--seed",
-        type=int,
-        default=DEFAULT_RANDOM_SEED,
-        help=(
-            "Random seed used to pick sample volumes. "
-            "Use the same value to reproduce the same sample order."
-        ),
+        help="How many leading volumes to reconstruct and display.",
     )
     return parser.parse_args()
 
@@ -99,6 +89,7 @@ def _to_2d_image(image: np.ndarray) -> np.ndarray:
 
 def main() -> None:
     args = parse_args()
+    np.random.seed(42)
 
     # Load FastMRI data directly from local source into the dataset connector.
     dataset = FastMRIDataset(
@@ -109,8 +100,8 @@ def main() -> None:
     dataset.download(source=args.source)
     all_sample_ids = dataset.sample_ids()
     sample_count = min(args.num_samples, len(all_sample_ids))
-    rng = random.Random(args.seed)
-    sample_ids = rng.sample(all_sample_ids, k=sample_count)
+    # Deterministic sample order for reproducible comparisons.
+    sample_ids = all_sample_ids[:sample_count]
     if not sample_ids:
         raise RuntimeError(
             f"No FastMRI sample volumes found in {dataset.data_dir}"
@@ -123,6 +114,13 @@ def main() -> None:
     tikhonov = TikhonovReconstructor(l2_weight=1e-3)
     pocs = POCSReconstructor(num_iterations=25, l1_weight=1e-3)
     fista_l1 = FISTAL1Reconstructor(num_iterations=25, l1_weight=1e-3)
+    # Fixed TV-PDHG settings tuned to reduce oversmoothing on single-coil knee data.
+    tv_pdhg = TVPDHGReconstructor(
+        num_iterations=60,
+        tv_weight=2e-4,
+        tau=0.2,
+        sigma=0.2,
+    )
     deepinverse = DeepInverseRAMReconstructor()
 
     try:
@@ -176,6 +174,8 @@ def main() -> None:
         pocs_vmin, pocs_vmax = _image_display_limits(pocs_image)
         fista_l1_image = _to_2d_image(fista_l1.apply_reconstruction(sample))
         fista_vmin, fista_vmax = _image_display_limits(fista_l1_image)
+        tv_pdhg_image = _to_2d_image(tv_pdhg.apply_reconstruction(sample))
+        tv_vmin, tv_vmax = _image_display_limits(tv_pdhg_image)
 
         # RAM is scale-sensitive, so run it in a normalized k-space domain.
         deepinverse_sample = dict(sample)
@@ -186,23 +186,28 @@ def main() -> None:
             ram_scale = 1.0
         deepinverse_sample["kspace"] = np.asarray(sample["kspace"]) / ram_scale
 
-        physics = DeepInverseRAMReconstructor.build_mri_physics(
-            deepinverse_sample
-        )
-        deepinverse_raw = deepinverse.apply_reconstruction(
-            deepinverse_sample,
-            physics=physics,
-        )
-        deepinverse_image = _to_2d_image(
-            deepinverse.to_magnitude_image(deepinverse_raw)
-        )
-        deepinverse_image = np.abs(deepinverse_image) * ram_scale
-        deepinverse_vmin, deepinverse_vmax = _image_display_limits(
-            deepinverse_image
-        )
+        deepinverse_image: np.ndarray | None = None
+        deepinverse_vmin, deepinverse_vmax = 0.0, 1.0
+        try:
+            physics = DeepInverseRAMReconstructor.build_mri_physics(
+                deepinverse_sample
+            )
+            deepinverse_raw = deepinverse.apply_reconstruction(
+                deepinverse_sample,
+                physics=physics,
+            )
+            deepinverse_image_local = _to_2d_image(
+                deepinverse.to_magnitude_image(deepinverse_raw)
+            )
+            deepinverse_image = np.abs(deepinverse_image_local) * ram_scale
+            deepinverse_vmin, deepinverse_vmax = _image_display_limits(
+                deepinverse_image
+            )
+        except (ImportError, KeyError, TypeError, AttributeError, RuntimeError, ValueError):
+            deepinverse_image = None
 
         # Save one wide comparison figure per sample to the reports folder.
-        fig, axes = plt.subplots(1, 8, figsize=(34, 5))
+        fig, axes = plt.subplots(1, 9, figsize=(38, 5))
 
         axes[0].imshow(
             kspace_image,
@@ -268,13 +273,33 @@ def main() -> None:
         axes[6].axis("off")
 
         axes[7].imshow(
-            deepinverse_image,
+            tv_pdhg_image,
             cmap="gray",
-            vmin=deepinverse_vmin,
-            vmax=deepinverse_vmax,
+            vmin=tv_vmin,
+            vmax=tv_vmax,
         )
-        axes[7].set_title("DeepInverse RAM")
+        axes[7].set_title("TV-PDHG")
         axes[7].axis("off")
+
+        if deepinverse_image is None:
+            axes[8].text(
+                0.5,
+                0.5,
+                "DeepInverse unavailable",
+                ha="center",
+                va="center",
+                fontsize=10,
+            )
+            axes[8].set_facecolor("black")
+        else:
+            axes[8].imshow(
+                deepinverse_image,
+                cmap="gray",
+                vmin=deepinverse_vmin,
+                vmax=deepinverse_vmax,
+            )
+        axes[8].set_title("DeepInverse RAM")
+        axes[8].axis("off")
 
         fig.suptitle(
             f"{sample_id} - center slice {center_slice_index}"

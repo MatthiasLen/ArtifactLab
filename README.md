@@ -39,6 +39,8 @@ The package also exposes a compact `mri_recon.reconstruction` module with:
 - `BaseReconstructor`: abstract interface exposing `apply_reconstruction`.
 - `ZeroFilledReconstructor`: centered inverse FFT baseline for Cartesian MRI.
 - `LandweberReconstructor`: small iterative least-squares reconstructor.
+- `TVPDHGReconstructor`: total-variation reconstruction using a primal-dual
+  hybrid gradient solver for single-coil undersampled k-space.
 - `DeepInverseReconstructor`: optional wrapper around DeepInverse `RAM`,
   `VarNet`, `MoDL`, and `deepinv.optim.optim_builder`.
 
@@ -85,4 +87,17 @@ For the direct pretrained reconstructor:
 
 ```python
 ram_model = DeepInverseReconstructor.load_pretrained_model("ram")
+```
+
+Run the plotting example directly on local knee single-coil test data:
+
+```bash
+python examples/fastmri_reconstruction_plot.py --source data/fastmri/knee_singlecoil_test/singlecoil_test
+```
+
+For less aggressive TV regularization on near fully sampled single-coil data,
+use a smaller TV weight and fewer PDHG iterations:
+
+```bash
+python examples/fastmri_reconstruction_plot.py --source data/fastmri/knee_singlecoil_test/singlecoil_test --tv-weight 2e-4 --tv-iterations 60
 ```

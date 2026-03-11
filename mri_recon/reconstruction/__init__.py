@@ -9,7 +9,7 @@ from .classic import (
 )
 from .deepinverse import DeepInverseReconstructor
 from .deepinverse import DeepInverseRAMReconstructor
-from .undersampled import FISTAL1Reconstructor, POCSReconstructor
+from .undersampled import FISTAL1Reconstructor, POCSReconstructor, TVPDHGReconstructor
 
 __all__ = [
     "BaseReconstructor",
@@ -19,6 +19,7 @@ __all__ = [
     "FISTAL1Reconstructor",
     "LandweberReconstructor",
     "POCSReconstructor",
+    "TVPDHGReconstructor",
     "TikhonovReconstructor",
     "ZeroFilledReconstructor",
 ]
