@@ -6,3 +6,4 @@ data/
 .vscode/
 *.egg-info/
 *_cache/
+reports/
