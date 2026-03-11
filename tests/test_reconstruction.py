@@ -68,17 +68,17 @@ class _FakeModel:
         self.eval_called = True
         return self
 
-    def __call__(self, measurement, **kwargs):  # noqa: ANN001 - test double
+    def __call__(self, input_data, **kwargs):  # noqa: ANN001 - test double
         del kwargs
-        return measurement * self.gain
+        return input_data * self.gain
 
 
 class _FakePhysicsModel(_FakeModel):
-    def __call__(self, measurement, physics=None, **kwargs):  # noqa: ANN001 - test double
+    def __call__(self, input_data, physics=None, **kwargs):  # noqa: ANN001 - test double
         del kwargs
         if physics is None:
             raise TypeError("physics is required")
-        return measurement * physics
+        return input_data * physics
 
 
 class DeepInverseReconstructionTests(unittest.TestCase):

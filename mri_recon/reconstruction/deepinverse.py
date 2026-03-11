@@ -31,7 +31,6 @@ class DeepInverseReconstructor(BaseReconstructor):
         "varnet": ("models", "VarNet"),
         "modl": ("models", "MoDL"),
         "optim_builder": ("optim", "optim_builder"),
-        "optimbuilder": ("optim", "optim_builder"),
     }
 
     def __init__(
@@ -97,15 +96,19 @@ class DeepInverseReconstructor(BaseReconstructor):
         if mask is not None:
             mask = self._to_model_input(mask)
 
+        errors: list[str] = []
         for call in self._candidate_calls(model, measurement, mask, selected_physics, kwargs):
             try:
                 result = call()
                 return self.to_numpy(self._unwrap_output(result))
-            except TypeError:
+            except TypeError as error:
+                errors.append(str(error))
                 continue
 
+        details = "; ".join(filter(None, errors)) or "no compatible call signature matched"
         raise TypeError(
-            "Unable to call the selected DeepInverse model with the provided sample and options."
+            "Unable to call the selected DeepInverse model with the provided sample and "
+            f"options: {details}."
         )
 
     def _candidate_calls(
