@@ -9,8 +9,8 @@ from pathlib import Path
 import shutil
 from statistics import fmean
 from typing import Any
-from urllib.parse import urlparse
-from urllib.request import urlretrieve
+from urllib.parse import unquote, urlparse
+from urllib.request import url2pathname, urlretrieve
 
 
 class BaseDataset(ABC):
@@ -43,7 +43,14 @@ class BaseDataset(ABC):
             urlretrieve(str(source), destination_file)
             return destination_file
 
-        source_path = Path(parsed.path) if parsed.scheme == "file" else Path(source)
+        if parsed.scheme == "file":
+            # Convert file:// URIs into a local path correctly on Windows and POSIX.
+            uri_path = url2pathname(unquote(parsed.path))
+            if parsed.netloc:
+                uri_path = f"//{parsed.netloc}{uri_path}"
+            source_path = Path(uri_path)
+        else:
+            source_path = Path(source)
         if not source_path.exists():
             raise FileNotFoundError(f"Dataset source does not exist: {source_path}")
 
