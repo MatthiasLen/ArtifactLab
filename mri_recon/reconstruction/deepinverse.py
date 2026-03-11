@@ -23,14 +23,23 @@ class DeepInverseReconstructor(BaseReconstructor):
     """Wrap a small set of DeepInverse MRI reconstructor implementations.
 
     The class currently supports three well-known algorithms exposed by the
-    DeepInverse toolbox: ``VarNet``, ``MoDL`` and the generic optimization
-    builder ``deepinv.optim.optim_builder``.
+    DeepInverse toolbox: the pretrained foundation model ``RAM``, ``VarNet``,
+    ``MoDL`` and the generic optimization builder ``deepinv.optim.optim_builder``.
+    It also exposes the most relevant documented pretrained DeepInverse models
+    for reconstruction workflows via :meth:`available_pretrained_models` and
+    :meth:`load_pretrained_model`.
     """
 
     _ALGORITHM_REGISTRY = {
+        "ram": ("models", "RAM"),
         "varnet": ("models", "VarNet"),
         "modl": ("models", "MoDL"),
         "optim_builder": ("optim", "optim_builder"),
+    }
+    _PRETRAINED_MODEL_REGISTRY = {
+        "ram": ("models", "RAM", {"pretrained": True}),
+        "drunet": ("models", "DRUNet", {"pretrained": "download"}),
+        "dncnn": ("models", "DnCNN", {"pretrained": "download"}),
     }
 
     def __init__(
@@ -50,7 +59,67 @@ class DeepInverseReconstructor(BaseReconstructor):
     def available_algorithms(cls) -> tuple[str, ...]:
         """Return the supported DeepInverse algorithm identifiers."""
 
-        return ("varnet", "modl", "optim_builder")
+        return ("ram", "varnet", "modl", "optim_builder")
+
+    @classmethod
+    def available_pretrained_models(cls) -> tuple[str, ...]:
+        """Return the documented pretrained DeepInverse model identifiers.
+
+        ``ram`` is a direct pretrained reconstructor, while ``drunet`` and
+        ``dncnn`` are pretrained denoiser backbones commonly used inside
+        iterative DeepInverse reconstruction pipelines.
+        """
+
+        return ("ram", "drunet", "dncnn")
+
+    @classmethod
+    def load_pretrained_model(cls, model_name: str, **model_kwargs: Any) -> Any:
+        """Load a documented pretrained DeepInverse model or backbone."""
+
+        deepinv_module = cls._import_deepinv_module()
+        registry_entry = cls._PRETRAINED_MODEL_REGISTRY.get(model_name.lower())
+        if registry_entry is None:
+            available = ", ".join(cls.available_pretrained_models())
+            raise ValueError(
+                f"Unsupported pretrained DeepInverse model {model_name!r}. "
+                f"Choose from {available}."
+            )
+        module_name, symbol_name, default_kwargs = registry_entry
+        try:
+            source_module = getattr(deepinv_module, module_name)
+            model_class = getattr(source_module, symbol_name)
+        except AttributeError as error:
+            raise AttributeError(
+                f"deepinv.{module_name} does not expose the required symbol {symbol_name!r}."
+            ) from error
+
+        combined_kwargs = dict(default_kwargs)
+        combined_kwargs.update(model_kwargs)
+        return model_class(**combined_kwargs)
+
+    @classmethod
+    def build_mri_physics(
+        cls,
+        sample: dict[str, Any],
+        device: str = "cpu",
+    ) -> Any:
+        """Build a simple DeepInverse MRI physics operator for a FastMRI sample."""
+
+        if torch is None:
+            raise ImportError(
+                "DeepInverse MRI physics creation requires torch. Install CPU torch first "
+                "and then install dependencies from requirements.txt."
+            )
+
+        deepinv_module = cls._import_deepinv_module()
+        target = sample.get("target")
+        measurement = sample.get("kspace")
+        if measurement is None:
+            raise KeyError("Sample does not contain field 'kspace'")
+
+        img_shape = cls._infer_img_size(target=target, measurement=measurement)
+        mask = cls._prepare_mri_mask(sample.get("mask"), img_shape, device=device)
+        return deepinv_module.physics.MRI(mask=mask, img_size=img_shape, device=device)
 
     def build_model(self) -> Any:
         """Construct and cache the selected DeepInverse model."""
@@ -58,7 +127,7 @@ class DeepInverseReconstructor(BaseReconstructor):
         if self.model is not None:
             return self.model
 
-        deepinv_module = self._import_deepinv()
+        deepinv_module = self._import_deepinv_module()
         registry_entry = self._ALGORITHM_REGISTRY.get(self.algorithm.lower())
         if registry_entry is None:
             available = ", ".join(self.available_algorithms())
@@ -75,7 +144,12 @@ class DeepInverseReconstructor(BaseReconstructor):
                 f"deepinv.{module_name} does not expose the required symbol {symbol_name!r}."
             ) from error
 
-        self.model = model_class(**self.model_kwargs)
+        if self.algorithm.lower() == "ram":
+            combined_kwargs = {"pretrained": False}
+            combined_kwargs.update(self.model_kwargs)
+            self.model = model_class(**combined_kwargs)
+        else:
+            self.model = model_class(**self.model_kwargs)
         return self.model
 
     def apply_reconstruction(
@@ -91,7 +165,7 @@ class DeepInverseReconstructor(BaseReconstructor):
         if hasattr(model, "eval"):
             model.eval()
 
-        measurement = self._to_model_input(self.get_kspace(sample))
+        measurement = self._prepare_measurement(self.get_kspace(sample), physics=selected_physics)
         mask = self.get_mask(sample)
         if mask is not None:
             mask = self._to_model_input(mask)
@@ -140,6 +214,37 @@ class DeepInverseReconstructor(BaseReconstructor):
             return data
         return np.asarray(data)
 
+    def to_magnitude_image(self, reconstruction: Any) -> Any:
+        """Convert a DeepInverse reconstruction into a magnitude image array."""
+
+        array = self.to_numpy(reconstruction)
+        if array is None or np is None:
+            return array
+        if array.ndim == 4 and array.shape[1] == 2:
+            return np.abs(array[:, 0] + 1j * array[:, 1])
+        if array.ndim == 3 and array.shape[0] == 2:
+            return np.abs(array[0] + 1j * array[1])
+        if np.iscomplexobj(array):
+            return np.abs(array)
+        return array
+
+    def _prepare_measurement(self, data: Any, physics: Any | None) -> Any:
+        measurement = self._to_model_input(data)
+        if torch is None or not isinstance(measurement, torch.Tensor):
+            return measurement
+        if not self._is_mri_physics(physics):
+            return measurement
+        if measurement.is_complex():
+            measurement = torch.view_as_real(measurement)
+            if measurement.ndim == 3:
+                measurement = measurement.permute(2, 0, 1)
+            elif measurement.ndim == 4:
+                measurement = measurement.permute(0, 3, 1, 2)
+            measurement = measurement.float()
+        if measurement.ndim == 3:
+            measurement = measurement.unsqueeze(0)
+        return measurement
+
     def _unwrap_output(self, result: Any) -> Any:
         if isinstance(result, dict):
             for key in ("reconstruction", "output", "x"):
@@ -149,7 +254,8 @@ class DeepInverseReconstructor(BaseReconstructor):
             return result[0]
         return result
 
-    def _import_deepinv(self) -> ModuleType:
+    @staticmethod
+    def _import_deepinv_module() -> ModuleType:
         try:
             return importlib.import_module("deepinv")
         except ImportError as error:
@@ -157,3 +263,32 @@ class DeepInverseReconstructor(BaseReconstructor):
                 "DeepInverseReconstructor requires the optional deepinv package to "
                 "build models. Install deepinv or inject a pre-built model instance."
             ) from error
+
+    @staticmethod
+    def _is_mri_physics(physics: Any | None) -> bool:
+        return physics is not None and physics.__class__.__name__ == "MRI"
+
+    @staticmethod
+    def _infer_img_size(target: Any, measurement: Any) -> tuple[int, int]:
+        if target is not None:
+            target_shape = getattr(target, "shape", None)
+            if target_shape is not None and len(target_shape) >= 2:
+                return int(target_shape[-2]), int(target_shape[-1])
+        measurement_shape = getattr(measurement, "shape", None)
+        if measurement_shape is None or len(measurement_shape) < 2:
+            raise ValueError("Unable to infer MRI image size from the provided sample.")
+        return int(measurement_shape[-2]), int(measurement_shape[-1])
+
+    @staticmethod
+    def _prepare_mri_mask(mask: Any, img_shape: tuple[int, int], device: str) -> Any:
+        if torch is None:
+            raise ImportError(
+                "DeepInverse MRI physics creation requires torch. Install CPU torch first "
+                "and then install dependencies from requirements.txt."
+            )
+        if mask is None:
+            return torch.ones((1, 1, *img_shape), dtype=torch.float32, device=device)
+        mask_tensor = torch.as_tensor(mask, dtype=torch.float32, device=device)
+        while mask_tensor.ndim < 4:
+            mask_tensor = mask_tensor.unsqueeze(0)
+        return mask_tensor

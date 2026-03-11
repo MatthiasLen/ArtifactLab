@@ -39,8 +39,8 @@ The package also exposes a compact `mri_recon.reconstruction` module with:
 - `BaseReconstructor`: abstract interface exposing `apply_reconstruction`.
 - `ZeroFilledReconstructor`: centered inverse FFT baseline for Cartesian MRI.
 - `LandweberReconstructor`: small iterative least-squares reconstructor.
-- `DeepInverseReconstructor`: optional wrapper around DeepInverse `VarNet`,
-  `MoDL`, and `deepinv.optim.optim_builder`.
+- `DeepInverseReconstructor`: optional wrapper around DeepInverse `RAM`,
+  `VarNet`, `MoDL`, and `deepinv.optim.optim_builder`.
 
 Example:
 
@@ -56,13 +56,33 @@ image = ZeroFilledReconstructor().apply_reconstruction(sample)
 ```
 
 To use `DeepInverseReconstructor`, install the optional DeepInverse dependency
-from `requirements.txt` and pass a DeepInverse physics operator when needed:
+from `requirements.txt`. The wrapper can build a simple MRI physics operator
+directly from a FastMRI sample and also exposes the most relevant documented
+pretrained DeepInverse models via `available_pretrained_models()`:
 
 ```python
-import deepinv as dinv
+from mri_recon.datasets import FastMRIDataset
 from mri_recon.reconstruction import DeepInverseReconstructor
 
-physics = dinv.physics.MRI(mask=mask, img_size=img_size)
+dataset = FastMRIDataset(split="val", challenge="singlecoil")
+dataset.download()
+sample = dataset[0]
+
+physics = DeepInverseReconstructor.build_mri_physics(sample)
 reconstructor = DeepInverseReconstructor("varnet", physics=physics)
-reconstruction = reconstructor.apply_reconstruction({"kspace": measurement})
+reconstruction = reconstructor.apply_reconstruction(sample)
+magnitude_image = reconstructor.to_magnitude_image(reconstruction)
+```
+
+The wrapper exposes these documented pretrained DeepInverse models/backbones:
+
+```python
+DeepInverseReconstructor.available_pretrained_models()
+# ('ram', 'drunet', 'dncnn')
+```
+
+For the direct pretrained reconstructor:
+
+```python
+ram_model = DeepInverseReconstructor.load_pretrained_model("ram")
 ```

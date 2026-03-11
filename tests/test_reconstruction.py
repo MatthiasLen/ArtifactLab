@@ -22,6 +22,8 @@ from mri_recon.reconstruction.classic import _fft2c
 
 HAS_NUMPY = importlib.util.find_spec("numpy") is not None
 HAS_FASTMRI = importlib.util.find_spec("fastmri") is not None
+HAS_TORCH = importlib.util.find_spec("torch") is not None
+HAS_DEEPINV = importlib.util.find_spec("deepinv") is not None
 
 if HAS_NUMPY:
     import numpy as np
@@ -60,7 +62,8 @@ class ClassicReconstructionTests(unittest.TestCase):
 
 
 class _FakeModel:
-    def __init__(self, gain: float = 1.0) -> None:
+    def __init__(self, gain: float = 1.0, **kwargs) -> None:  # noqa: ANN003 - test double
+        del kwargs
         self.gain = gain
         self.eval_called = False
 
@@ -87,20 +90,33 @@ class DeepInverseReconstructionTests(unittest.TestCase):
     def test_available_algorithms_are_exposed(self) -> None:
         self.assertEqual(
             DeepInverseReconstructor.available_algorithms(),
-            ("varnet", "modl", "optim_builder"),
+            ("ram", "varnet", "modl", "optim_builder"),
+        )
+
+    def test_available_pretrained_models_are_exposed(self) -> None:
+        self.assertEqual(
+            DeepInverseReconstructor.available_pretrained_models(),
+            ("ram", "drunet", "dncnn"),
         )
 
     def test_build_model_resolves_three_deepinverse_algorithms(self) -> None:
         fake_module = ModuleType("deepinv")
         fake_module.models = SimpleNamespace(
+            RAM=_FakeModel,
             VarNet=_FakeModel,
             MoDL=_FakeModel,
+            DRUNet=_FakeModel,
+            DnCNN=_FakeModel,
         )
         fake_module.optim = SimpleNamespace(optim_builder=lambda **kwargs: _FakeModel(**kwargs))
         original_module = sys.modules.get("deepinv")
 
         try:
             sys.modules["deepinv"] = fake_module
+            self.assertIsInstance(
+                DeepInverseReconstructor("ram", model_kwargs={"pretrained": False, "gain": 2.0}).build_model(),
+                _FakeModel,
+            )
             self.assertIsInstance(
                 DeepInverseReconstructor("varnet", model_kwargs={"gain": 2.0}).build_model(),
                 _FakeModel,
@@ -114,6 +130,35 @@ class DeepInverseReconstructionTests(unittest.TestCase):
                     "optim_builder",
                     model_kwargs={"gain": 2.0},
                 ).build_model(),
+                _FakeModel,
+            )
+        finally:
+            if original_module is None:
+                sys.modules.pop("deepinv", None)
+            else:
+                sys.modules["deepinv"] = original_module
+
+    def test_load_pretrained_model_exposes_documented_entries(self) -> None:
+        fake_module = ModuleType("deepinv")
+        fake_module.models = SimpleNamespace(
+            RAM=_FakeModel,
+            DRUNet=_FakeModel,
+            DnCNN=_FakeModel,
+        )
+        original_module = sys.modules.get("deepinv")
+
+        try:
+            sys.modules["deepinv"] = fake_module
+            self.assertIsInstance(
+                DeepInverseReconstructor.load_pretrained_model("ram", pretrained=False, gain=2.0),
+                _FakeModel,
+            )
+            self.assertIsInstance(
+                DeepInverseReconstructor.load_pretrained_model("drunet", pretrained=None, gain=2.0),
+                _FakeModel,
+            )
+            self.assertIsInstance(
+                DeepInverseReconstructor.load_pretrained_model("dncnn", pretrained=None, gain=2.0),
                 _FakeModel,
             )
         finally:
@@ -180,6 +225,28 @@ class FastMRIReconstructionIntegrationTests(unittest.TestCase):
             self.assertEqual(reconstructed.shape, sample["target"].shape)
             self.assertTrue(np.isfinite(reconstructed).all())
             self.assertGreater(float(np.max(reconstructed)), 0.0)
+
+    @unittest.skipUnless(HAS_NUMPY and HAS_FASTMRI and HAS_TORCH and HAS_DEEPINV, "full deepinverse runtime is required")
+    def test_deepinverse_varnet_reconstruction_runs_on_packaged_fastmri_sample(self) -> None:
+        with TemporaryDirectory() as root_directory:
+            dataset = FastMRIDataset(
+                root_directory,
+                split="val",
+                challenge="singlecoil",
+                sample_url=PACKAGED_SAMPLE_PATH,
+                auto_download=True,
+            )
+
+            sample = dataset.read_sample("fastmri_sample_singlecoil", slice_index=0)
+            reconstructor = DeepInverseReconstructor("varnet", model_kwargs={"num_cascades": 1})
+            physics = DeepInverseReconstructor.build_mri_physics(sample)
+            reconstructed = reconstructor.apply_reconstruction(sample, physics=physics)
+            magnitude_image = reconstructor.to_magnitude_image(reconstructed)
+
+            self.assertEqual(reconstructed.shape, (1, 2, *sample["target"].shape))
+            self.assertEqual(magnitude_image.shape, (1, *sample["target"].shape))
+            self.assertTrue(np.isfinite(magnitude_image).all())
+            self.assertGreater(float(np.max(magnitude_image)), 0.0)
 
 
 if __name__ == "__main__":
