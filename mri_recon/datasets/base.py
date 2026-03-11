@@ -36,7 +36,7 @@ class BaseDataset(ABC):
         target.parent.mkdir(parents=True, exist_ok=True)
 
         parsed = urlparse(str(source))
-        if parsed.scheme and parsed.scheme not in {"", "file"}:
+        if parsed.scheme and parsed.scheme != "file":
             filename = Path(parsed.path).name or "dataset.bin"
             target.mkdir(parents=True, exist_ok=True)
             destination_file = target / filename

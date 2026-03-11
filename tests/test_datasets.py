@@ -98,7 +98,7 @@ class DatasetBaseTests(unittest.TestCase):
 
     def test_base_dataset_is_abstract(self) -> None:
         with self.assertRaises(TypeError):
-            BaseDataset("/tmp/base-dataset-test")  # type: ignore[abstract]
+            BaseDataset(str(Path.cwd() / "base-dataset-test"))  # type: ignore[abstract]
 
     def test_apply_normalization_returns_zscore_copy(self) -> None:
         class DummyDataset(BaseDataset):
@@ -108,16 +108,17 @@ class DatasetBaseTests(unittest.TestCase):
             def read_sample(self, sample_id: str, slice_index: int = 0) -> dict[str, object]:
                 return {"sample_id": sample_id, "kspace": DUMMY_KSPACE}
 
-        dataset = DummyDataset("/tmp/dummy-dataset")
-        sample = {"kspace": DUMMY_KSPACE, "metadata": {"source": "dummy"}}
+        with TemporaryDirectory() as temporary_directory:
+            dataset = DummyDataset(temporary_directory)
+            sample = {"kspace": DUMMY_KSPACE, "metadata": {"source": "dummy"}}
 
-        normalized = dataset.apply_normalization(sample)
+            normalized = dataset.apply_normalization(sample)
 
-        self.assertEqual(sample["kspace"], DUMMY_KSPACE)
-        flattened = [value for row in normalized["kspace"] for value in row]
-        self.assertAlmostEqual(sum(flattened), 0.0, places=7)
-        self.assertAlmostEqual(flattened[0], -1.3416407864998738)
-        self.assertAlmostEqual(flattened[-1], 1.3416407864998738)
+            self.assertEqual(sample["kspace"], DUMMY_KSPACE)
+            flattened = [value for row in normalized["kspace"] for value in row]
+            self.assertAlmostEqual(sum(flattened), 0.0, places=7)
+            self.assertAlmostEqual(flattened[0], -1.3416407864998738)
+            self.assertAlmostEqual(flattened[-1], 1.3416407864998738)
 
 
 @unittest.skipUnless(HAS_H5PY and HAS_NUMPY and HAS_FASTMRI, "fastmri runtime is required")
