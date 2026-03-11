@@ -1,0 +1,14 @@
+[project]
+name = "mri-recon"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "deepinv==0.3.7",
+    "fastmri==0.3.0",
+    "h5py==3.16.0",
+    "numpy==2.4.3",
+    "pydicom==3.0.1",
+    "pytest>=9.0.2",
+]

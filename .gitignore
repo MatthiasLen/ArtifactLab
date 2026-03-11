@@ -7,3 +7,4 @@ data/
 *.egg-info/
 *_cache/
 reports/
+.python-version
