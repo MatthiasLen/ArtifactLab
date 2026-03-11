@@ -60,7 +60,7 @@ class BaseDataset(ABC):
         """Return the on-disk path for a sample."""
 
     @abstractmethod
-    def read_sample(self, sample_id: str) -> dict[str, Any]:
+    def read_sample(self, sample_id: str, slice_index: int = 0) -> dict[str, Any]:
         """Read a sample into a standard dictionary representation."""
 
     def apply_normalization(
