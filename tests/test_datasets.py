@@ -10,6 +10,7 @@ from mri_recon.datasets import BaseDataset, FastMRIDataset
 
 
 FIXTURE_ROOT = Path(__file__).parent / "fixtures" / "fastmri"
+DUMMY_KSPACE = [[1.0, 2.0], [3.0, 4.0]]
 
 
 class DatasetBaseTests(unittest.TestCase):
@@ -25,14 +26,14 @@ class DatasetBaseTests(unittest.TestCase):
                 return Path(sample_id)
 
             def read_sample(self, sample_id: str) -> dict[str, object]:
-                return {"sample_id": sample_id, "kspace": [[1.0, 2.0], [3.0, 4.0]]}
+                return {"sample_id": sample_id, "kspace": DUMMY_KSPACE}
 
         dataset = DummyDataset("/tmp/dummy-dataset")
-        sample = {"kspace": [[1.0, 2.0], [3.0, 4.0]], "metadata": {"source": "dummy"}}
+        sample = {"kspace": DUMMY_KSPACE, "metadata": {"source": "dummy"}}
 
         normalized = dataset.apply_normalization(sample)
 
-        self.assertEqual(sample["kspace"], [[1.0, 2.0], [3.0, 4.0]])
+        self.assertEqual(sample["kspace"], DUMMY_KSPACE)
         flattened = [value for row in normalized["kspace"] for value in row]
         self.assertAlmostEqual(sum(flattened), 0.0, places=7)
         self.assertAlmostEqual(flattened[0], -1.3416407864998738)

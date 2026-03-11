@@ -116,13 +116,13 @@ class BaseDataset(ABC):
             return values
         raise TypeError("Normalization expects numeric values stored in nested lists or tuples")
 
-    def _map_nested_numeric(self, data: Any, transform: Any) -> Any:
-        """Apply *transform* to all numeric values while preserving nesting."""
+    def _map_nested_numeric(self, data: Any, transform_fn: Any) -> Any:
+        """Apply *transform_fn* to all numeric values while preserving nesting."""
 
         if isinstance(data, (int, float)):
-            return transform(float(data))
+            return transform_fn(float(data))
         if isinstance(data, list):
-            return [self._map_nested_numeric(item, transform) for item in data]
+            return [self._map_nested_numeric(item, transform_fn) for item in data]
         if isinstance(data, tuple):
-            return tuple(self._map_nested_numeric(item, transform) for item in data)
+            return tuple(self._map_nested_numeric(item, transform_fn) for item in data)
         raise TypeError("Normalization expects numeric values stored in nested lists or tuples")
