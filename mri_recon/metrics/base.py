@@ -16,6 +16,22 @@ def _require_numpy() -> None:
         raise ImportError("Image metrics require numpy to be installed")
 
 
+def require_spatial_image(array: Any, metric_name: str) -> None:
+    """Require image-like inputs with explicit spatial dimensions."""
+
+    if array.ndim < 2:
+        raise ValueError(f"{metric_name} expects image inputs with at least two dimensions")
+
+
+def gradient_magnitude(array: Any) -> Any:
+    """Compute a simple finite-difference gradient magnitude map."""
+
+    _require_numpy()
+    gradient_x = np.diff(array, axis=-1, append=array[..., -1:])
+    gradient_y = np.diff(array, axis=-2, append=array[..., -1:, :])
+    return np.sqrt(gradient_x * gradient_x + gradient_y * gradient_y)
+
+
 class BaseMetric(ABC):
     """Compact base interface for reference and non-reference image metrics."""
 

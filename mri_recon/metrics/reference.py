@@ -6,12 +6,15 @@ from importlib import import_module
 from math import inf, log10, sqrt
 from typing import Any, Callable
 
-from .base import BaseMetric, _require_numpy
+from .base import BaseMetric, _require_numpy, gradient_magnitude, require_spatial_image
 
 try:
     import numpy as np
 except ImportError:  # pragma: no cover - exercised via runtime guard.
     np = None
+
+
+DEFAULT_GMSD_STABLE_CONSTANT = 0.0026
 
 
 def _mean_squared_error(prediction: Any, reference: Any) -> float:
@@ -35,19 +38,6 @@ def _resolve_data_range(reference: Any, configured_range: float | None) -> float
 
     maximum_magnitude = float(np.max(np.abs(reference)))
     return maximum_magnitude if maximum_magnitude > 0 else 1.0
-
-
-def _require_spatial_image(array: Any, metric_name: str) -> None:
-    if array.ndim < 2:
-        raise ValueError(f"{metric_name} expects image inputs with at least two dimensions")
-
-
-def _gradient_magnitude(array: Any) -> Any:
-    _require_numpy()
-    gradient_x = np.diff(array, axis=-1, append=array[..., -1:])
-    gradient_y = np.diff(array, axis=-2, append=array[..., -1:, :])
-    return np.sqrt(gradient_x * gradient_x + gradient_y * gradient_y)
-
 
 class L1Metric(BaseMetric):
     """Mean absolute error between a prediction and a reference image."""
@@ -188,7 +178,12 @@ class SREMetric(BaseMetric):
 class GMSDMetric(BaseMetric):
     """Gradient magnitude similarity deviation."""
 
-    def __init__(self, data_range: float | None = None, stable_constant: float = 0.0026, **kwargs: Any) -> None:
+    def __init__(
+        self,
+        data_range: float | None = None,
+        stable_constant: float = DEFAULT_GMSD_STABLE_CONSTANT,
+        **kwargs: Any,
+    ) -> None:
         super().__init__(**kwargs)
         if stable_constant <= 0:
             raise ValueError("stable_constant must be strictly positive")
@@ -198,11 +193,11 @@ class GMSDMetric(BaseMetric):
     def apply_metric(self, prediction: Any, reference: Any | None = None, **kwargs: Any) -> float:
         del kwargs
         prediction_array, reference_array = self.prepare_inputs(prediction, reference)
-        _require_spatial_image(prediction_array, "GMSDMetric")
+        require_spatial_image(prediction_array, "GMSDMetric")
         data_range = _resolve_data_range(reference_array, self.data_range)
 
-        prediction_gradient = _gradient_magnitude(prediction_array)
-        reference_gradient = _gradient_magnitude(reference_array)
+        prediction_gradient = gradient_magnitude(prediction_array)
+        reference_gradient = gradient_magnitude(reference_array)
         constant = (self.stable_constant * data_range) ** 2
         similarity = (2.0 * prediction_gradient * reference_gradient + constant) / (
             prediction_gradient * prediction_gradient
@@ -232,7 +227,9 @@ class LPIPSMetric(BaseMetric):
     def apply_metric(self, prediction: Any, reference: Any | None = None, **kwargs: Any) -> float:
         del kwargs
         prediction_array, reference_array = self.prepare_inputs(prediction, reference)
-        backend = self._backend or self._resolve_backend()
+        if self._backend is None:
+            self._backend = self._resolve_backend()
+        backend = self._backend
         prediction_batch = self._prepare_lpips_array(prediction_array)
         reference_batch = self._prepare_lpips_array(reference_array)
         return float(backend(prediction_batch, reference_batch))

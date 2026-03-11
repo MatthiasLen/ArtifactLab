@@ -97,6 +97,7 @@ class ReferenceMetricTests(unittest.TestCase):
         self.assertAlmostEqual(UQIMetricModuleImport().apply_metric(self.reference, self.reference), 1.0)
 
     def test_sre_matches_expected_value(self) -> None:
+        # mean(reference**2) == 3.5 and MSE(prediction, reference) == 0.5.
         expected = 10.0 * math.log10(3.5 / 0.5)
         self.assertAlmostEqual(SREMetric().apply_metric(self.prediction, self.reference), expected)
 
@@ -195,7 +196,7 @@ class NonReferenceMetricTests(unittest.TestCase):
         )
 
     def test_blur_effect_rejects_invalid_configuration(self) -> None:
-        with self.assertRaisesRegex(ValueError, "odd integer"):
+        with self.assertRaisesRegex(ValueError, "odd integer of at least 3"):
             BlurEffectMetric(kernel_size=2)
 
     def test_blur_effect_rejects_one_dimensional_inputs(self) -> None:

@@ -5,8 +5,7 @@ from __future__ import annotations
 from math import sqrt
 from typing import Any
 
-from .base import BaseMetric, _require_numpy
-from .reference import _gradient_magnitude, _require_spatial_image
+from .base import BaseMetric, _require_numpy, gradient_magnitude, require_spatial_image
 
 try:
     import numpy as np
@@ -14,11 +13,16 @@ except ImportError:  # pragma: no cover - exercised via runtime guard.
     np = None
 
 
+def _convolve_same(values: Any, kernel: Any) -> Any:
+    _require_numpy()
+    return np.convolve(values, kernel, mode="same")
+
+
 def _uniform_blur(array: Any, kernel_size: int) -> Any:
     _require_numpy()
     kernel = np.ones(kernel_size, dtype=np.float32) / float(kernel_size)
-    blurred = np.apply_along_axis(lambda row: np.convolve(row, kernel, mode="same"), -1, array)
-    return np.apply_along_axis(lambda row: np.convolve(row, kernel, mode="same"), -2, blurred)
+    blurred = np.apply_along_axis(_convolve_same, -1, array, kernel)
+    return np.apply_along_axis(_convolve_same, -2, blurred, kernel)
 
 
 class EntropyMetric(BaseMetric):
@@ -54,13 +58,13 @@ class BlurEffectMetric(BaseMetric):
     def __init__(self, kernel_size: int = 3, **kwargs: Any) -> None:
         super().__init__(**kwargs)
         if kernel_size < 3 or kernel_size % 2 == 0:
-            raise ValueError("kernel_size must be an odd integer greater than or equal to 3")
+            raise ValueError("kernel_size must be an odd integer of at least 3")
         self.kernel_size = kernel_size
 
     def apply_metric(self, prediction: Any, reference: Any | None = None, **kwargs: Any) -> float:
         del kwargs
         prediction_array, _ = self.prepare_inputs(prediction, reference, require_reference=False)
-        _require_spatial_image(prediction_array, "BlurEffectMetric")
+        require_spatial_image(prediction_array, "BlurEffectMetric")
 
         source = np.abs(prediction_array)
         blurred = _uniform_blur(source, self.kernel_size)
@@ -85,8 +89,8 @@ class TenengradMetric(BaseMetric):
     def apply_metric(self, prediction: Any, reference: Any | None = None, **kwargs: Any) -> float:
         del kwargs
         prediction_array, _ = self.prepare_inputs(prediction, reference, require_reference=False)
-        _require_spatial_image(prediction_array, "TenengradMetric")
-        gradients = _gradient_magnitude(prediction_array)
+        require_spatial_image(prediction_array, "TenengradMetric")
+        gradients = gradient_magnitude(prediction_array)
         return float(np.mean(gradients * gradients))
 
 
