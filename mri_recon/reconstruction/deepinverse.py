@@ -264,7 +264,7 @@ class DeepInverseRAMReconstructor(BaseReconstructor):
 
     @staticmethod
     def _infer_img_size(sample: dict[str, Any]) -> tuple[int, int]:
-        """Infer image size from target or k-space fields.
+        """Infer MRI physics image size from sample fields.
 
         Args:
             sample: Input sample dictionary.
@@ -273,15 +273,12 @@ class DeepInverseRAMReconstructor(BaseReconstructor):
             ``(height, width)`` image shape inferred from sample content.
         """
 
-        target = sample.get("target")
-        if target is not None:
-            target_shape = getattr(target, "shape", None)
-            if target_shape is not None and len(target_shape) >= 2:
-                return int(target_shape[-2]), int(target_shape[-1])
         measurement = sample.get("kspace")
         measurement_shape = getattr(measurement, "shape", None)
         if measurement_shape is None or len(measurement_shape) < 2:
             raise ValueError("Unable to infer MRI image size from the provided sample.")
+        # k-space defines the FFT grid used by the physics model. Some datasets
+        # expose cropped targets that do not match this grid.
         return int(measurement_shape[-2]), int(measurement_shape[-1])
 
     @staticmethod
@@ -567,13 +564,10 @@ class DeepInverseReconstructor(BaseReconstructor):
 
     @staticmethod
     def _infer_img_size(target: Any, measurement: Any) -> tuple[int, int]:
-        if target is not None:
-            target_shape = getattr(target, "shape", None)
-            if target_shape is not None and len(target_shape) >= 2:
-                return int(target_shape[-2]), int(target_shape[-1])
         measurement_shape = getattr(measurement, "shape", None)
         if measurement_shape is None or len(measurement_shape) < 2:
             raise ValueError("Unable to infer MRI image size from the provided sample.")
+        # Use k-space geometry for physics. Targets can be cropped views.
         return int(measurement_shape[-2]), int(measurement_shape[-1])
 
     @staticmethod

@@ -7,6 +7,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import sys
 from pathlib import Path
 
 import numpy as np
@@ -29,6 +30,13 @@ DEFAULT_SOURCE = (
     / "knee_singlecoil_test"
     / "singlecoil_test"
 )
+
+DEFAULT_SOURCE_VAL = (
+    Path(r"C:\Code\mri_recon\data\fastmri")
+    / "knee_singlecoil_val"
+    / "singlecoil_val"
+)
+
 REPORT_DIR = Path("reports") / "fastmri_reconstruction_plot"
 
 
@@ -37,7 +45,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--source",
         type=Path,
-        default=DEFAULT_SOURCE,
+        default=DEFAULT_SOURCE_VAL,
         help="Local FastMRI directory with raw k-space .h5 files.",
     )
     parser.add_argument(
@@ -187,6 +195,7 @@ def main() -> None:
         deepinverse_sample["kspace"] = np.asarray(sample["kspace"]) / ram_scale
 
         deepinverse_image: np.ndarray | None = None
+        deepinverse_error: str | None = None
         deepinverse_vmin, deepinverse_vmax = 0.0, 1.0
         try:
             physics = DeepInverseRAMReconstructor.build_mri_physics(
@@ -203,8 +212,14 @@ def main() -> None:
             deepinverse_vmin, deepinverse_vmax = _image_display_limits(
                 deepinverse_image
             )
-        except (ImportError, KeyError, TypeError, AttributeError, RuntimeError, ValueError):
+        except (ImportError, KeyError, TypeError, AttributeError, RuntimeError, ValueError) as error:
             deepinverse_image = None
+            deepinverse_error = str(error)
+            print(
+                "DeepInverse unavailable for "
+                f"{sample_id} slice {center_slice_index} on interpreter "
+                f"{sys.executable}: {deepinverse_error}"
+            )
 
         # Save one wide comparison figure per sample to the reports folder.
         fig, axes = plt.subplots(1, 9, figsize=(38, 5))
@@ -282,10 +297,12 @@ def main() -> None:
         axes[7].axis("off")
 
         if deepinverse_image is None:
+            reason = "" if deepinverse_error is None else deepinverse_error[:80]
             axes[8].text(
                 0.5,
                 0.5,
-                "DeepInverse unavailable",
+                "DeepInverse unavailable\n"
+                f"{reason}",
                 ha="center",
                 va="center",
                 fontsize=10,

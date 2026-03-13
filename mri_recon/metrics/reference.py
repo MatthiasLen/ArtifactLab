@@ -270,13 +270,15 @@ class LPIPSMetric(BaseMetric):
 
         minimum = float(np.min(array))
         maximum = float(np.max(array))
-        if minimum < -1.0 or maximum > 1.0:
-            # LPIPS backends expect image tensors normalized to [-1, 1]. For
-            # constant images outside that range, returning zeros preserves the
-            # "no contrast" signal without introducing artificial differences.
-            if maximum == minimum:
-                array = np.zeros_like(array)
-            else:
-                array = 2.0 * (array - minimum) / (maximum - minimum) - 1.0
+        # torchmetrics LPIPS with normalize=False expects [-1, 1].
+        # Accept common [0, 1] inputs and map them to the expected range,
+        # but reject any other range to avoid silently changing contrast.
+        if 0.0 <= minimum and maximum <= 1.0:
+            array = 2.0 * array - 1.0
+        elif minimum < -1.0 or maximum > 1.0:
+            raise ValueError(
+                "LPIPS expects values in [0, 1] or [-1, 1]; "
+                f"got range [{minimum}, {maximum}]"
+            )
         return array
 

@@ -119,7 +119,7 @@ class ReferenceMetricTests(unittest.TestCase):
 
         with patch("torchmetrics.image.lpip.LearnedPerceptualImagePatchSimilarity", return_value=fake_backend):
             metric = LPIPSMetric()
-            value = metric.apply_metric(self.prediction, self.reference)
+            value = metric.apply_metric(self.prediction / 3.0, self.reference / 3.0)
 
         self.assertGreaterEqual(value, 0.0)
         self.assertEqual(captured_shapes, [((1, 3, 2, 2), (1, 3, 2, 2))])
@@ -127,8 +127,8 @@ class ReferenceMetricTests(unittest.TestCase):
     def test_lpips_initializes_metric_once_in_constructor(self) -> None:
         with patch("torchmetrics.image.lpip.LearnedPerceptualImagePatchSimilarity", return_value=lambda prediction, reference: 0.123) as constructor:
             metric = LPIPSMetric()
-            first = metric.apply_metric(self.prediction, self.reference)
-            second = metric.apply_metric(self.prediction, self.reference)
+            first = metric.apply_metric(self.prediction / 3.0, self.reference / 3.0)
+            second = metric.apply_metric(self.prediction / 3.0, self.reference / 3.0)
 
         self.assertEqual(first, 0.123)
         self.assertEqual(second, 0.123)
