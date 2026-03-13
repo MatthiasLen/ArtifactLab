@@ -1,6 +1,6 @@
 # mri_recon
 
-Compact MRI reconstruction playground with:
+MRI reconstruction playground for the MRI Metrics project with:
 
 - Dataset wrapper for FastMRI slices (`FastMRIDataset`)
 - Reconstruction algorithms (classic + undersampled + DeepInverse wrapper)
