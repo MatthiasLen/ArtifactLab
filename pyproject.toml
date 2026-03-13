@@ -8,6 +8,7 @@ dependencies = [
     "deepinv==0.3.7",
     "fastmri==0.3.0",
     "h5py==3.16.0",
+    "matplotlib>=3.9.0",
     "numpy==2.4.3",
     "pydicom==3.0.1",
     "pytest>=9.0.2",

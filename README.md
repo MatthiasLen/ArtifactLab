@@ -1,103 +1,96 @@
 # mri_recon
 
-Minimal Python package for MRI reconstruction utilities.
+Compact MRI reconstruction playground with:
 
-## Dataset interfaces
+- Dataset wrapper for FastMRI slices (`FastMRIDataset`)
+- Reconstruction algorithms (classic + undersampled + DeepInverse wrapper)
+- Image/k-space distortion operators (resolution, sharpness, artifact models)
+- Metric interfaces and tests
+- Ready-to-run plotting examples
 
-The repository now includes a compact `mri_recon.datasets` package with:
+## Repository Contents
 
-- `BaseDataset`: abstract dataset interface with shared `download` and
-  `apply_normalization` helpers.
-- `FastMRIDataset`: a wrapper around the real `fastmri.data.SliceDataset`
-  class that reads FastMRI HDF5 volumes slice-by-slice and exposes convenient
-  helpers for downloading a sample, sampling slices, and converting matrices
-  to NumPy.
+- `mri_recon/datasets/`: dataset interfaces and FastMRI loader
+- `mri_recon/reconstruction/`: reconstruction methods
+- `mri_recon/distortions/`: k-space/image distortion operators
+- `mri_recon/metrics/`: metric interfaces and implementations
+- `examples/`: runnable scripts for visual inspection
+- `tests/`: unit tests
 
-Install the real fastMRI dependency stack before using `FastMRIDataset`:
+## Available Reconstructions
+
+| Class | Category | Notes |
+|---|---|---|
+| `ZeroFilledReconstructor` | Classic | Inverse FFT baseline |
+| `LandweberReconstructor` | Classic iterative | Gradient-descent style |
+| `ConjugateGradientReconstructor` | Classic iterative | Normal-equation solver |
+| `TikhonovReconstructor` | Classic regularized | Closed-form ridge in k-space |
+| `POCSReconstructor` | Undersampled | Data consistency + thresholding |
+| `FISTAL1Reconstructor` | Undersampled | Accelerated sparse reconstruction |
+| `TVPDHGReconstructor` | Undersampled | TV-regularized primal-dual solver |
+| `DeepInverseRAMReconstructor` | Deep learning wrapper | Optional DeepInverse model |
+
+## Available Distortions
+
+| Class | Group | Notes |
+|---|---|---|
+| `IsotropicResolutionReduction` | Resolution | Circular low-pass truncation |
+| `AnisotropicResolutionChange` | Resolution | Axis-dependent low-pass |
+| `ZeroFillDistortion` | Resolution | k-space zero-padding |
+| `PhaseEncodeDecimation` | Resolution | Keep every R-th ky line |
+| `VariableDensityBandwidthReduction` | Resolution | Smooth radial taper |
+| `CoordinateScaling` | Resolution | k-space coordinate scaling |
+| `Apodization` | Sharpness | Gaussian/Hamming/Hann/Kaiser window |
+| `DirectionalSharpnessControl` | Sharpness | Axis-specific apodization |
+| `HighFrequencyBoost` | Sharpness | Radial high-frequency gain |
+| `UnsharpMaskKspace` | Sharpness | k-space unsharp masking |
+| `RegularizedInverseBlur` | Sharpness | Wiener-like inverse filter |
+| `GibbsRingingDistortion` | Artifacts | Hard rectangular truncation |
+| `AliasingWrapAroundDistortion` | Artifacts | ky undersampling aliasing |
+| `EPINHalfGhostDistortion` | Artifacts | Odd/even phase mismatch |
+| `LineByLineMotionGhostDistortion` | Artifacts | Line-wise motion phase |
+| `OffResonanceDistortion` | Artifacts | Per-line off-resonance phase accrual |
+
+## Available Metrics
+
+| Class | Type | Notes |
+|---|---|---|
+| `L1Metric` | Reference | Mean absolute error |
+| `MSEMetric` | Reference | Mean squared error |
+| `RMSEMetric` | Reference | Root mean squared error |
+| `NMSEMetric` | Reference | Normalized MSE |
+| `PSNRMetric` | Reference | Peak signal-to-noise ratio |
+| `SSIMMetric` | Reference | Structural similarity |
+| `UQIMetric` | Reference | Universal quality index |
+| `GMSDMetric` | Reference | Gradient magnitude similarity deviation |
+| `SREMetric` | Reference | Signal-to-reconstruction error |
+| `LPIPSMetric` | Reference | Learned perceptual similarity |
+| `EntropyMetric` | Non-reference | Intensity distribution entropy |
+| `RMSContrastMetric` | Non-reference | RMS contrast |
+| `TenengradMetric` | Non-reference | Gradient-based sharpness |
+| `BlurEffectMetric` | Non-reference | Blur effect indicator |
+
+## Setup
 
 ```bash
-python -m pip install --index-url https://download.pytorch.org/whl/cpu torch
 python -m pip install -r requirements.txt
 ```
 
-Example:
+For FastMRI usage, place/download data under:
 
-```python
-from mri_recon.datasets import FastMRIDataset
+- `data/fastmri/knee_singlecoil_val/singlecoil_val`
+- or pass a custom `--source` path to examples
 
-dataset = FastMRIDataset(split="val", challenge="singlecoil")
-dataset.download(source="/path/to/fastmri_or_archive")
+## Run Examples
 
-sample = dataset[0]
-pixel_matrix = dataset.to_numpy(sample, field="target")
-```
-
-## Reconstruction interfaces
-
-The package also exposes a compact `mri_recon.reconstruction` module with:
-
-- `BaseReconstructor`: abstract interface exposing `apply_reconstruction`.
-- `ZeroFilledReconstructor`: centered inverse FFT baseline for Cartesian MRI.
-- `LandweberReconstructor`: small iterative least-squares reconstructor.
-- `TVPDHGReconstructor`: total-variation reconstruction using a primal-dual
-  hybrid gradient solver for single-coil undersampled k-space.
-- `DeepInverseReconstructor`: optional wrapper around DeepInverse `RAM`,
-  `VarNet`, `MoDL`, and `deepinv.optim.optim_builder`.
-
-Example:
-
-```python
-from mri_recon.datasets import FastMRIDataset
-from mri_recon.reconstruction import ZeroFilledReconstructor
-
-dataset = FastMRIDataset(split="val", challenge="singlecoil")
-dataset.download()
-
-sample = dataset[0]
-image = ZeroFilledReconstructor().apply_reconstruction(sample)
-```
-
-To use `DeepInverseReconstructor`, install the optional DeepInverse dependency
-from `requirements.txt`. The wrapper can build a simple MRI physics operator
-directly from a FastMRI sample and also exposes the most relevant documented
-pretrained DeepInverse models via `available_pretrained_models()`:
-
-```python
-from mri_recon.datasets import FastMRIDataset
-from mri_recon.reconstruction import DeepInverseReconstructor
-
-dataset = FastMRIDataset(split="val", challenge="singlecoil")
-dataset.download()
-sample = dataset[0]
-
-physics = DeepInverseReconstructor.build_mri_physics(sample)
-reconstructor = DeepInverseReconstructor("varnet", physics=physics)
-reconstruction = reconstructor.apply_reconstruction(sample)
-magnitude_image = reconstructor.to_magnitude_image(reconstruction)
-```
-
-The wrapper exposes these documented pretrained DeepInverse models/backbones:
-
-```python
-DeepInverseReconstructor.available_pretrained_models()
-# ('ram', 'drunet', 'dncnn')
-```
-
-For the direct pretrained reconstructor:
-
-```python
-ram_model = DeepInverseReconstructor.load_pretrained_model("ram")
-```
-
-Run the plotting example directly on local knee single-coil test data:
+From the repository root:
 
 ```bash
-python examples/fastmri_reconstruction_plot.py --source data/fastmri/knee_singlecoil_test/singlecoil_test
+python examples/fastmri_reconstruction_plot.py --source data/fastmri/knee_singlecoil_val/singlecoil_val
 ```
-
-For less aggressive TV regularization on near fully sampled single-coil data,
-use a smaller TV weight and fewer PDHG iterations:
 
 ```bash
-python examples/fastmri_reconstruction_plot.py --source data/fastmri/knee_singlecoil_test/singlecoil_test --tv-weight 2e-4 --tv-iterations 60
+python examples/fastmri_distortion_plot.py --algorithm zero-filled --source data/fastmri/knee_singlecoil_val/singlecoil_val
 ```
+
+Outputs are saved in `reports/`.
