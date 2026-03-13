@@ -10,7 +10,6 @@ from types import ModuleType, SimpleNamespace
 import unittest
 
 from mri_recon.datasets import FastMRIDataset
-from mri_recon.datasets.fastmri import PACKAGED_SAMPLE_PATH
 from mri_recon.reconstruction import (
     BaseReconstructor,
     ConjugateGradientReconstructor,
@@ -32,6 +31,16 @@ HAS_DEEPINV = importlib.util.find_spec("deepinv") is not None
 
 if HAS_NUMPY:
     import numpy as np
+
+
+FASTMRI_FIXTURE_PATH = (
+    Path(__file__).resolve().parent
+    / ".."
+    / "mri_recon"
+    / "datasets"
+    / "fixtures"
+    / "fastmri_sample_singlecoil.h5"
+).resolve()
 
 
 class ReconstructionBaseTests(unittest.TestCase):
@@ -240,7 +249,7 @@ class FastMRIReconstructionIntegrationTests(unittest.TestCase):
                 root_directory,
                 split="val",
                 challenge="singlecoil",
-                sample_url=PACKAGED_SAMPLE_PATH,
+                sample_url=FASTMRI_FIXTURE_PATH,
                 auto_download=True,
             )
 
@@ -258,7 +267,7 @@ class FastMRIReconstructionIntegrationTests(unittest.TestCase):
                 root_directory,
                 split="val",
                 challenge="singlecoil",
-                sample_url=PACKAGED_SAMPLE_PATH,
+                sample_url=FASTMRI_FIXTURE_PATH,
                 auto_download=True,
             )
 

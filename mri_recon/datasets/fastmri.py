@@ -2,11 +2,8 @@
 
 from __future__ import annotations
 
-import os
 from pathlib import Path
 from typing import Any, Callable
-from urllib.parse import unquote, urlparse
-from urllib.request import url2pathname
 
 import numpy as np
 
@@ -17,27 +14,13 @@ try:
 except ImportError:  # pragma: no cover - exercised via runtime guard.
     SliceDataset = None
 
-try:
-    from pydicom.misc import is_dicom
-except ImportError:  # pragma: no cover - exercised via runtime guard.
-    is_dicom = None
-
 
 DEFAULT_FASTMRI_ROOT = Path.home() / ".cache" / "mri_recon" / "fastmri"
-DEFAULT_FASTMRI_SAMPLE_ENV = "MRI_RECON_FASTMRI_SAMPLE_URL"
-PACKAGED_SAMPLE_PATH = Path(__file__).with_name("fixtures") / "fastmri_sample_singlecoil.h5"
 
 
 class FastMRIDataset(BaseDataset):
-    """Wrapper around :class:`fastmri.data.SliceDataset`.
+    """Small wrapper around ``fastmri.data.SliceDataset``."""
 
-    The wrapper keeps a small repository-level API while delegating actual file
-    indexing and slice loading to the upstream fastMRI dataset implementation.
-    It also provides a default cache location and an optional built-in sample
-    source so users can get started without manually wiring dataset paths.
-    """
-
-    sample_extension = ".h5"
     supported_sample_extensions = (".h5", ".hdf5")
 
     def __init__(
@@ -58,7 +41,7 @@ class FastMRIDataset(BaseDataset):
         super().__init__(root_dir=root_dir or DEFAULT_FASTMRI_ROOT)
         if challenge not in {"singlecoil", "multicoil"}:
             raise ValueError('challenge should be either "singlecoil" or "multicoil"')
-        self.split = split
+
         self.challenge = challenge
         self.transform = transform
         self.use_dataset_cache = use_dataset_cache
@@ -67,130 +50,82 @@ class FastMRIDataset(BaseDataset):
         self.dataset_cache_file = dataset_cache_file
         self.num_cols = num_cols
         self.raw_sample_filter = raw_sample_filter
-        self.sample_url = (
-            Path(sample_url).resolve().as_uri() if isinstance(sample_url, Path) else sample_url
-        )
-        self.data_dir = self.root_dir / self.split
+        self.sample_url = sample_url
+
+        self.data_dir = self.root_dir / split
         self._slice_dataset: Any | None = None
 
-        if auto_download and not self._has_local_samples():
-            self.download()
-        elif self._has_local_samples():
+        if self._has_local_samples():
             self._initialize_slice_dataset()
+        elif auto_download:
+            self.download()
 
     @property
     def slice_dataset(self) -> Any:
-        """Expose the underlying ``fastmri.data.SliceDataset`` instance."""
-
         self._ensure_slice_dataset()
         return self._slice_dataset
-
-    @property
-    def default_sample_source(self) -> str | None:
-        """Return the built-in or environment-defined sample source."""
-
-        env_source = os.environ.get(DEFAULT_FASTMRI_SAMPLE_ENV)
-        if env_source:
-            return env_source
-        if self.sample_url:
-            return self.sample_url
-        if PACKAGED_SAMPLE_PATH.exists():
-            return PACKAGED_SAMPLE_PATH.as_uri()
-        return None
 
     def download(
         self,
         source: str | Path | None = None,
         destination: str | Path | None = None,
     ) -> Path:
-        """Download FastMRI data or bind to local data without copying."""
+        source_path = source or self.sample_url
+        if source_path is None:
+            raise ValueError("No source provided. Pass source=... or set sample_url.")
 
-        actual_source = source or self.default_sample_source
-        if actual_source is None:
-            raise ValueError(
-                "No FastMRI sample source is configured. Pass a source URL/path or set "
-                f"{DEFAULT_FASTMRI_SAMPLE_ENV}."
-            )
-
-        local_source = self._resolve_local_source(actual_source)
-        if local_source is not None and local_source.exists() and not self._is_archive_path(local_source):
-            downloaded_path = local_source
-        else:
-            target = Path(destination) if destination is not None else self.data_dir
-            downloaded_path = super().download(source=actual_source, destination=target)
-
-        self.data_dir = self._resolve_data_dir(downloaded_path)
+        target = Path(destination) if destination is not None else self.data_dir
+        resolved = super().download(source=source_path, destination=target)
+        self.data_dir = self._resolve_data_dir(resolved)
         self._initialize_slice_dataset()
-        return downloaded_path
+        return resolved
 
     def get_sample_path(self, sample_id: str) -> Path:
-        """Return the HDF5 path for a FastMRI volume in the configured split."""
-
-        normalized_sample_id = sample_id.lower()
-        sample_name = sample_id if normalized_sample_id.endswith(self.supported_sample_extensions) else (
-            f"{sample_id}{self.sample_extension}"
-        )
-        return self.data_dir / sample_name
+        if sample_id.lower().endswith(self.supported_sample_extensions):
+            return self.data_dir / sample_id
+        return self.data_dir / f"{sample_id}.h5"
 
     def read_sample(self, sample_id: str, slice_index: int = 0) -> dict[str, Any]:
-        """Read a single FastMRI slice via the upstream ``SliceDataset``."""
-
-        normalized_sample_id = Path(sample_id).stem
+        wanted_id = Path(sample_id).stem
         for index, raw_sample in enumerate(self.slice_dataset.raw_samples):
-            if raw_sample.fname.stem == normalized_sample_id and raw_sample.slice_ind == slice_index:
+            if raw_sample.fname.stem == wanted_id and raw_sample.slice_ind == slice_index:
                 return self[index]
 
         raise FileNotFoundError(
-            f"FastMRI sample {normalized_sample_id!r} slice {slice_index} was not found in "
-            f"{self.data_dir}."
+            f"FastMRI sample {wanted_id!r} slice {slice_index} was not found in {self.data_dir}."
         )
 
     def to_numpy(self, sample: dict[str, Any], field: str = "target") -> Any:
-        """Convert one field of a sample into a NumPy array."""
-
         if field not in sample:
             raise KeyError(f"Sample does not contain field {field!r}")
         return np.asarray(sample[field])
 
     def sample_ids(self) -> list[str]:
-        """Return the available volume identifiers."""
-
-        seen: list[str] = []
-        for raw_sample in self.slice_dataset.raw_samples:
-            sample_id = raw_sample.fname.stem
-            if sample_id not in seen:
-                seen.append(sample_id)
-        return seen
+        return list(dict.fromkeys(raw_sample.fname.stem for raw_sample in self.slice_dataset.raw_samples))
 
     def __len__(self) -> int:
-        if not self._has_local_samples() and self._slice_dataset is None:
+        if self._slice_dataset is None and not self._has_local_samples():
             return 0
         return len(self.slice_dataset)
 
     def __getitem__(self, index: int) -> dict[str, Any]:
-        """Return one slice sampled through the upstream ``SliceDataset``."""
-
         return self._normalize_slice_sample(self.slice_dataset[index])
 
     def _ensure_slice_dataset(self) -> None:
-        """Initialize the upstream slice dataset when local data is available."""
-
         if self._slice_dataset is not None:
             return
         if not self._has_local_samples():
             raise FileNotFoundError(
-                f"No FastMRI volumes are available in {self.data_dir}. "
-                "Call download() first or place official .h5 files there."
+                f"No FastMRI volumes are available in {self.data_dir}. Call download() first "
+                "or place .h5/.hdf5 files in that folder."
             )
         self._initialize_slice_dataset()
 
     def _initialize_slice_dataset(self) -> None:
-        """Create the underlying ``fastmri.data.SliceDataset`` instance."""
-
         if SliceDataset is None:
             raise ImportError(
-                "FastMRIDataset requires the real fastmri package. Install CPU torch first "
-                "and then install dependencies from requirements.txt."
+                "FastMRIDataset requires the fastmri package. Install CPU torch first and "
+                "then install dependencies from requirements.txt."
             )
 
         self.data_dir.mkdir(parents=True, exist_ok=True)
@@ -207,78 +142,26 @@ class FastMRIDataset(BaseDataset):
         )
 
     def _has_local_samples(self) -> bool:
-        """Return whether the split directory currently contains HDF5 volumes."""
+        if not self.data_dir.exists():
+            return False
+        return any(self._is_volume_file(path) for path in self.data_dir.iterdir())
 
-        return self.data_dir.exists() and any(
-            self._is_volume_file(path) for path in self.data_dir.iterdir()
-        )
+    def _resolve_data_dir(self, path: Path) -> Path:
+        if path.is_file():
+            if not self._is_volume_file(path):
+                raise FileNotFoundError(f"FastMRI source file is not an HDF5 volume: {path}")
+            return path.parent
 
-    def _resolve_local_source(self, source: str | Path) -> Path | None:
-        parsed = urlparse(str(source))
-        if parsed.scheme and parsed.scheme != "file":
-            return None
-        if parsed.scheme == "file":
-            uri_path = url2pathname(unquote(parsed.path))
-            if parsed.netloc:
-                uri_path = f"//{parsed.netloc}{uri_path}"
-            return Path(uri_path)
-        return Path(source)
+        first_volume = next((candidate for candidate in sorted(path.rglob("*")) if self._is_volume_file(candidate)), None)
+        if first_volume is not None:
+            return first_volume.parent
 
-    def _resolve_data_dir(self, resolved_path: Path) -> Path:
-        if resolved_path.is_file():
-            if self._is_volume_file(resolved_path):
-                return resolved_path.parent
-            if self._is_dicom_file(resolved_path):
-                raise ValueError(
-                    "DICOM input was detected, but FastMRIDataset expects raw "
-                    "FastMRI k-space .h5/.hdf5 files. Convert DICOM images to a "
-                    "supported k-space dataset before using this connector."
-                )
-            raise FileNotFoundError(f"FastMRI source file is not an HDF5 volume: {resolved_path}")
-
-        if any(self._is_volume_file(path) for path in resolved_path.iterdir()):
-            return resolved_path
-
-        if self._contains_dicom(resolved_path):
-            raise ValueError(
-                "DICOM files were detected, but FastMRIDataset expects raw "
-                "FastMRI k-space .h5/.hdf5 files. Convert DICOM images to a "
-                "supported k-space dataset before using this connector."
-            )
-
-        nested_directories = sorted(
-            (path for path in resolved_path.rglob("*") if path.is_dir()),
-            key=lambda candidate: len(candidate.parts),
-        )
-        for directory in nested_directories:
-            if any(self._is_volume_file(path) for path in directory.iterdir()):
-                return directory
-
-        raise FileNotFoundError(
-            f"No FastMRI .h5 files were found in extracted source: {resolved_path}"
-        )
+        raise FileNotFoundError(f"No FastMRI .h5/.hdf5 files were found in: {path}")
 
     def _is_volume_file(self, path: Path) -> bool:
         return path.is_file() and path.suffix.lower() in self.supported_sample_extensions
 
-    def _is_dicom_file(self, path: Path) -> bool:
-        if not path.is_file():
-            return False
-        if path.suffix.lower() == ".dcm":
-            return True
-        if is_dicom is None:
-            return False
-        return bool(is_dicom(str(path)))
-
-    def _contains_dicom(self, root: Path) -> bool:
-        for file_path in root.rglob("*"):
-            if self._is_dicom_file(file_path):
-                return True
-        return False
-
     def _normalize_slice_sample(self, sample: tuple[Any, Any, Any, dict[str, Any], str, int]) -> dict[str, Any]:
-        """Convert the upstream tuple return value into the package dictionary format."""
-
         kspace, mask, target, attrs, filename, dataslice = sample
         return {
             "sample_id": Path(filename).stem,

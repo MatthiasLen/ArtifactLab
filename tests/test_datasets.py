@@ -163,7 +163,7 @@ class DatasetBaseTests(unittest.TestCase):
             self.assertEqual(resolved.resolve(), destination.resolve())
             self.assertTrue((destination / payload_name).exists())
 
-    def test_fastmri_download_rejects_dicom_source(self) -> None:
+    def test_fastmri_download_rejects_non_hdf5_source(self) -> None:
         with TemporaryDirectory() as source_directory, TemporaryDirectory() as root_directory:
             source_path = Path(source_directory)
             dicom_file = source_path / "example.dcm"
@@ -171,7 +171,7 @@ class DatasetBaseTests(unittest.TestCase):
 
             dataset = FastMRIDataset(root_dir=root_directory, split="test", challenge="singlecoil")
 
-            with self.assertRaisesRegex(ValueError, "DICOM"):
+            with self.assertRaises(FileNotFoundError):
                 dataset.download(source=source_path)
 
 

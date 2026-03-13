@@ -26,7 +26,7 @@ Example:
 from mri_recon.datasets import FastMRIDataset
 
 dataset = FastMRIDataset(split="val", challenge="singlecoil")
-dataset.download()  # uses the built-in sample source when no official data is present
+dataset.download(source="/path/to/fastmri_or_archive")
 
 sample = dataset[0]
 pixel_matrix = dataset.to_numpy(sample, field="target")
