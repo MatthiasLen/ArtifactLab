@@ -5,21 +5,16 @@ from __future__ import annotations
 from math import sqrt
 from typing import Any
 
-from .base import BaseMetric, _require_numpy, gradient_magnitude, require_spatial_image
+import numpy as np
 
-try:
-    import numpy as np
-except ImportError:  # pragma: no cover - exercised via runtime guard.
-    np = None
+from .base import BaseMetric, gradient_magnitude, require_spatial_image
 
 
 def _convolve_same(values: Any, kernel: Any) -> Any:
-    _require_numpy()
     return np.convolve(values, kernel, mode="same")
 
 
 def _uniform_blur(array: Any, kernel_size: int) -> Any:
-    _require_numpy()
     kernel = np.ones(kernel_size, dtype=np.float32) / float(kernel_size)
     blurred = np.apply_along_axis(_convolve_same, -1, array, kernel)
     return np.apply_along_axis(_convolve_same, -2, blurred, kernel)

@@ -4,22 +4,9 @@ from __future__ import annotations
 
 from typing import Any
 
+import numpy as np
+
 from .base import BaseReconstructor
-
-try:
-    import numpy as np
-except ImportError:  # pragma: no cover - exercised via runtime guard.
-    np = None
-
-
-def _require_numpy() -> None:
-    """Ensure NumPy is available before running numerical reconstruction code."""
-
-    if np is None:
-        raise ImportError(
-            "Classic MRI reconstruction requires numpy. Install dependencies from "
-            "requirements.txt before using these reconstructors."
-        )
 
 
 def _fft2c(image: np.ndarray) -> np.ndarray:
@@ -33,7 +20,6 @@ def _fft2c(image: np.ndarray) -> np.ndarray:
         A centered k-space array with orthonormal FFT scaling.
     """
 
-    _require_numpy()
     return np.fft.fftshift(
         np.fft.fft2(np.fft.ifftshift(image, axes=(-2, -1)), norm="ortho"),
         axes=(-2, -1),
@@ -51,7 +37,6 @@ def _ifft2c(kspace: np.ndarray) -> np.ndarray:
         A centered image-domain array with orthonormal FFT scaling.
     """
 
-    _require_numpy()
     return np.fft.fftshift(
         np.fft.ifft2(np.fft.ifftshift(kspace, axes=(-2, -1)), norm="ortho"),
         axes=(-2, -1),
@@ -81,7 +66,6 @@ class ZeroFilledReconstructor(BaseReconstructor):
         """
 
         del kwargs
-        _require_numpy()
         # Zero-filling means we directly inverse-transform the measured k-space.
         reconstructed = _ifft2c(np.asarray(self.get_kspace(sample)))
         if reconstructed.ndim > 2:
@@ -122,7 +106,6 @@ class LandweberReconstructor(BaseReconstructor):
         """
 
         del kwargs
-        _require_numpy()
         measured_kspace = np.asarray(self.get_kspace(sample))
         mask = self._prepare_mask(sample, measured_kspace.shape)
 
@@ -190,7 +173,6 @@ class ConjugateGradientReconstructor(BaseReconstructor):
         """
 
         del kwargs
-        _require_numpy()
         measured_kspace = np.asarray(self.get_kspace(sample))
         mask = self._prepare_mask(sample, measured_kspace.shape)
 
@@ -283,7 +265,6 @@ class TikhonovReconstructor(BaseReconstructor):
         """
 
         del kwargs
-        _require_numpy()
         measured_kspace = np.asarray(self.get_kspace(sample))
         mask = self._prepare_mask(sample, measured_kspace.shape)
 

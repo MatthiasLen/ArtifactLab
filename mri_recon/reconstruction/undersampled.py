@@ -4,23 +4,10 @@ from __future__ import annotations
 
 from typing import Any
 
+import numpy as np
+
 from .base import BaseReconstructor
 from .classic import _fft2c, _ifft2c
-
-try:
-    import numpy as np
-except ImportError:  # pragma: no cover - exercised via runtime guard.
-    np = None
-
-
-def _require_numpy() -> None:
-    """Ensure NumPy is available before running undersampled methods."""
-
-    if np is None:
-        raise ImportError(
-            "Undersampled MRI reconstruction requires numpy. Install "
-            "dependencies from requirements.txt before using these methods."
-        )
 
 
 class POCSReconstructor(BaseReconstructor):
@@ -56,7 +43,6 @@ class POCSReconstructor(BaseReconstructor):
         """
 
         del kwargs
-        _require_numpy()
         measured_kspace = np.asarray(self.get_kspace(sample))
         mask = self._prepare_mask(sample, measured_kspace.shape)
 
@@ -162,7 +148,6 @@ class FISTAL1Reconstructor(BaseReconstructor):
         """
 
         del kwargs
-        _require_numpy()
         measured_kspace = np.asarray(self.get_kspace(sample))
         mask = self._prepare_mask(sample, measured_kspace.shape)
 
@@ -280,7 +265,6 @@ class TVPDHGReconstructor(BaseReconstructor):
         """
 
         del kwargs
-        _require_numpy()
         measured_kspace = np.asarray(self.get_kspace(sample))
         mask = self._prepare_mask(sample, measured_kspace.shape)
 

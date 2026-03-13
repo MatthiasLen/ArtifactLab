@@ -2,29 +2,23 @@
 
 from __future__ import annotations
 
-from importlib import import_module
 from math import inf, log10, sqrt
-from typing import Any, Callable
+from typing import Any
 
-from .base import BaseMetric, _require_numpy, gradient_magnitude, require_spatial_image
+import numpy as np
 
-try:
-    import numpy as np
-except ImportError:  # pragma: no cover - exercised via runtime guard.
-    np = None
+from .base import BaseMetric, gradient_magnitude, require_spatial_image
 
 
 DEFAULT_GMSD_STABLE_CONSTANT = 0.0026
 
 
 def _mean_squared_error(prediction: Any, reference: Any) -> float:
-    _require_numpy()
     difference = prediction - reference
     return float(np.mean(difference * difference))
 
 
 def _resolve_data_range(reference: Any, configured_range: float | None) -> float:
-    _require_numpy()
     if configured_range is not None:
         if configured_range <= 0:
             raise ValueError("data_range must be strictly positive")
@@ -208,34 +202,46 @@ class GMSDMetric(BaseMetric):
 
 
 class LPIPSMetric(BaseMetric):
-    """Learned perceptual image patch similarity with optional backend injection.
+    """Learned perceptual image patch similarity via torchmetrics.
 
-    Inputs are reshaped into batched channel-first tensors and normalized to the
-    ``[-1, 1]`` range expected by common LPIPS backends.
+    Inputs are converted to NCHW tensors with 3 channels and normalized to
+    ``[-1, 1]``.
     """
 
     def __init__(
         self,
         net_type: str = "alex",
-        backend: Callable[[Any, Any], float] | None = None,
         **kwargs: Any,
     ) -> None:
         super().__init__(**kwargs)
+        import torch
+        from torchmetrics.image.lpip import LearnedPerceptualImagePatchSimilarity
+
         self.net_type = net_type
-        self._backend = backend
+        self._torch = torch
+        self._metric = LearnedPerceptualImagePatchSimilarity(
+            net_type=self.net_type,
+            normalize=False,
+        )
 
     def apply_metric(self, prediction: Any, reference: Any | None = None, **kwargs: Any) -> float:
         del kwargs
         prediction_array, reference_array = self.prepare_inputs(prediction, reference)
-        if self._backend is None:
-            self._backend = self._resolve_backend()
-        backend = self._backend
         prediction_batch = self._prepare_lpips_array(prediction_array)
         reference_batch = self._prepare_lpips_array(reference_array)
-        return float(backend(prediction_batch, reference_batch))
+        value = self._metric(
+            self._torch.as_tensor(prediction_batch, dtype=self._torch.float32),
+            self._torch.as_tensor(reference_batch, dtype=self._torch.float32),
+        )
+        if hasattr(value, "detach"):
+            value = value.detach()
+        if hasattr(value, "cpu"):
+            value = value.cpu()
+        if hasattr(value, "item"):
+            value = value.item()
+        return float(value)
 
     def _prepare_lpips_array(self, image: Any) -> Any:
-        _require_numpy()
         array = np.asarray(image, dtype=np.float32)
         if array.ndim == 2:
             array = array[None, :, :]
@@ -274,61 +280,3 @@ class LPIPSMetric(BaseMetric):
                 array = 2.0 * (array - minimum) / (maximum - minimum) - 1.0
         return array
 
-    def _resolve_backend(self) -> Callable[[Any, Any], float]:
-        try:
-            import torch
-
-            torchmetrics_module = None
-            for module_name in ("torchmetrics.image.lpip", "torchmetrics.image.lpips"):
-                try:
-                    torchmetrics_module = import_module(module_name)
-                    break
-                except ImportError:
-                    continue
-            if torchmetrics_module is None:
-                raise ImportError
-            learned_metric = getattr(
-                torchmetrics_module,
-                "LearnedPerceptualImagePatchSimilarity",
-            )
-            metric = learned_metric(net_type=self.net_type, normalize=True)
-
-            def _torchmetrics_backend(prediction: Any, reference: Any) -> float:
-                return float(
-                    metric(
-                        torch.as_tensor(prediction, dtype=torch.float32),
-                        torch.as_tensor(reference, dtype=torch.float32),
-                    )
-                    .detach()
-                    .cpu()
-                    .item()
-                )
-
-            return _torchmetrics_backend
-        except ImportError:
-            pass
-
-        try:
-            import lpips
-            import torch
-
-            metric = lpips.LPIPS(net=self.net_type)
-
-            def _lpips_backend(prediction: Any, reference: Any) -> float:
-                return float(
-                    metric(
-                        torch.as_tensor(prediction, dtype=torch.float32),
-                        torch.as_tensor(reference, dtype=torch.float32),
-                    )
-                    .detach()
-                    .cpu()
-                    .mean()
-                    .item()
-                )
-
-            return _lpips_backend
-        except ImportError as error:
-            raise ImportError(
-                "LPIPSMetric requires torchmetrics or lpips with torch installed, "
-                "or an explicit backend callable"
-            ) from error

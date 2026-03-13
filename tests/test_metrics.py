@@ -5,6 +5,7 @@ from __future__ import annotations
 import importlib.util
 import math
 import unittest
+from unittest.mock import patch
 
 from mri_recon.metrics import (
     BaseMetric,
@@ -108,38 +109,48 @@ class ReferenceMetricTests(unittest.TestCase):
                 np.asarray([0.0, 1.0, 2.0], dtype=np.float32),
             )
 
-    def test_lpips_supports_injected_backend(self) -> None:
+    def test_lpips_prepares_inputs_for_backend(self) -> None:
         captured_shapes: list[tuple[tuple[int, ...], tuple[int, ...]]] = []
 
         def fake_backend(prediction: np.ndarray, reference: np.ndarray) -> float:
             captured_shapes.append((prediction.shape, reference.shape))
-            return float(np.mean(np.abs(prediction - reference)))
+            difference = (prediction - reference).detach().cpu().numpy()
+            return float(np.mean(np.abs(difference)))
 
-        metric = LPIPSMetric(backend=fake_backend)
-        value = metric.apply_metric(self.prediction, self.reference)
+        with patch("torchmetrics.image.lpip.LearnedPerceptualImagePatchSimilarity", return_value=fake_backend):
+            metric = LPIPSMetric()
+            value = metric.apply_metric(self.prediction, self.reference)
 
         self.assertGreaterEqual(value, 0.0)
         self.assertEqual(captured_shapes, [((1, 3, 2, 2), (1, 3, 2, 2))])
 
-    def test_lpips_raises_without_backend_or_optional_dependency(self) -> None:
-        with self.assertRaises(ImportError):
-            LPIPSMetric().apply_metric(self.prediction, self.reference)
+    def test_lpips_initializes_metric_once_in_constructor(self) -> None:
+        with patch("torchmetrics.image.lpip.LearnedPerceptualImagePatchSimilarity", return_value=lambda prediction, reference: 0.123) as constructor:
+            metric = LPIPSMetric()
+            first = metric.apply_metric(self.prediction, self.reference)
+            second = metric.apply_metric(self.prediction, self.reference)
+
+        self.assertEqual(first, 0.123)
+        self.assertEqual(second, 0.123)
+        self.assertEqual(constructor.call_count, 1)
 
     def test_lpips_rejects_invalid_tensor_rank(self) -> None:
-        metric = LPIPSMetric(backend=lambda prediction, reference: 0.0)
-        with self.assertRaisesRegex(ValueError, "2D, 3D or 4D"):
-            metric.apply_metric(
-                np.zeros((1, 1, 1, 1, 1), dtype=np.float32),
-                np.zeros((1, 1, 1, 1, 1), dtype=np.float32),
-            )
+        with patch("torchmetrics.image.lpip.LearnedPerceptualImagePatchSimilarity", return_value=lambda prediction, reference: 0.0):
+            metric = LPIPSMetric()
+            with self.assertRaisesRegex(ValueError, "2D, 3D or 4D"):
+                metric.apply_metric(
+                    np.zeros((1, 1, 1, 1, 1), dtype=np.float32),
+                    np.zeros((1, 1, 1, 1, 1), dtype=np.float32),
+                )
 
     def test_lpips_rejects_invalid_channel_configuration(self) -> None:
-        metric = LPIPSMetric(backend=lambda prediction, reference: 0.0)
-        with self.assertRaisesRegex(ValueError, "one or three channels"):
-            metric.apply_metric(
-                np.zeros((2, 2, 2), dtype=np.float32),
-                np.zeros((2, 2, 2), dtype=np.float32),
-            )
+        with patch("torchmetrics.image.lpip.LearnedPerceptualImagePatchSimilarity", return_value=lambda prediction, reference: 0.0):
+            metric = LPIPSMetric()
+            with self.assertRaisesRegex(ValueError, "one or three channels"):
+                metric.apply_metric(
+                    np.zeros((2, 2, 2), dtype=np.float32),
+                    np.zeros((2, 2, 2), dtype=np.float32),
+                )
 
 
 @unittest.skipUnless(HAS_NUMPY, "numpy runtime is required")

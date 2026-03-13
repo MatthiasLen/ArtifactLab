@@ -11,4 +11,5 @@ dependencies = [
     "numpy==2.4.3",
     "pydicom==3.0.1",
     "pytest>=9.0.2",
+    "torchmetrics>=1.9.0",
 ]

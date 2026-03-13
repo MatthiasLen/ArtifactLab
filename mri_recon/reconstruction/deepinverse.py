@@ -6,12 +6,9 @@ import importlib
 from types import ModuleType
 from typing import Any
 
-from .base import BaseReconstructor
+import numpy as np
 
-try:
-    import numpy as np
-except ImportError:  # pragma: no cover - exercised via runtime guard.
-    np = None
+from .base import BaseReconstructor
 
 try:
     import torch
@@ -225,8 +222,6 @@ class DeepInverseRAMReconstructor(BaseReconstructor):
             if isinstance(data, torch.Tensor):
                 return data.to(self.device)
             return torch.as_tensor(data, device=self.device)
-        if np is None:
-            return data
         return np.asarray(data)
 
     @staticmethod
@@ -514,15 +509,13 @@ class DeepInverseReconstructor(BaseReconstructor):
             if isinstance(data, torch.Tensor):
                 return data
             return torch.as_tensor(data)
-        if np is None:
-            return data
         return np.asarray(data)
 
     def to_magnitude_image(self, reconstruction: Any) -> Any:
         """Convert a DeepInverse reconstruction into a magnitude image array."""
 
         array = self.to_numpy(reconstruction)
-        if array is None or np is None:
+        if array is None:
             return array
         if array.ndim == 4 and array.shape[1] == 2:
             return np.abs(array[:, 0] + 1j * array[:, 1])

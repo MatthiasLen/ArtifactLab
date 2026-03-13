@@ -5,10 +5,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from typing import Any
 
-try:
-    import numpy as np
-except ImportError:  # pragma: no cover - exercised via runtime guard.
-    np = None
+import numpy as np
 
 
 class BaseReconstructor(ABC):
@@ -55,7 +52,7 @@ class BaseReconstructor(ABC):
     def to_numpy(self, data: Any) -> Any:
         """Convert tensors or array-like values into NumPy arrays when possible."""
 
-        if data is None or np is None:
+        if data is None:
             return data
         if hasattr(data, "detach") and hasattr(data, "cpu") and hasattr(data, "numpy"):
             return data.detach().cpu().numpy()

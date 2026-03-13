@@ -5,15 +5,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from typing import Any
 
-try:
-    import numpy as np
-except ImportError:  # pragma: no cover - exercised via runtime guard.
-    np = None
-
-
-def _require_numpy() -> None:
-    if np is None:  # pragma: no cover - numpy is a project dependency.
-        raise ImportError("Image metrics require numpy to be installed")
+import numpy as np
 
 
 def require_spatial_image(array: Any, metric_name: str) -> None:
@@ -26,7 +18,6 @@ def require_spatial_image(array: Any, metric_name: str) -> None:
 def gradient_magnitude(array: Any) -> Any:
     """Compute a simple finite-difference gradient magnitude map."""
 
-    _require_numpy()
     gradient_x = np.diff(array, axis=-1, append=array[..., -1:])
     gradient_y = np.diff(array, axis=-2, append=array[..., -1:, :])
     return np.sqrt(gradient_x * gradient_x + gradient_y * gradient_y)
@@ -66,7 +57,6 @@ class BaseMetric(ABC):
     ) -> tuple[Any, Any | None]:
         """Resolve sample dictionaries, convert arrays and validate inputs."""
 
-        _require_numpy()
         if isinstance(prediction, dict):
             sample = prediction
             prediction = self._require_field(sample, self.prediction_field)
@@ -99,7 +89,6 @@ class BaseMetric(ABC):
 
         if data is None:
             return data
-        _require_numpy()
         if hasattr(data, "detach") and hasattr(data, "cpu") and hasattr(data, "numpy"):
             data = data.detach().cpu().numpy()
         array = np.asarray(data)
@@ -126,5 +115,5 @@ class BaseMetric(ABC):
             raise ValueError(f"Metric input {name} must be at least one-dimensional")
         if array.size == 0:
             raise ValueError(f"Metric input {name} must not be empty")
-        if np is not None and not np.isfinite(array).all():
+        if not np.isfinite(array).all():
             raise ValueError(f"Metric input {name} must contain only finite values")

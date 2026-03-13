@@ -8,12 +8,9 @@ from typing import Any, Callable
 from urllib.parse import unquote, urlparse
 from urllib.request import url2pathname
 
-from .base import BaseDataset
+import numpy as np
 
-try:
-    import numpy as np
-except ImportError:  # pragma: no cover - exercised via runtime guard.
-    np = None
+from .base import BaseDataset
 
 try:
     from fastmri.data import SliceDataset
@@ -151,11 +148,6 @@ class FastMRIDataset(BaseDataset):
     def to_numpy(self, sample: dict[str, Any], field: str = "target") -> Any:
         """Convert one field of a sample into a NumPy array."""
 
-        if np is None:
-            raise ImportError(
-                "FastMRIDataset requires numpy. Install dependencies from "
-                "requirements.txt before using this dataset."
-            )
         if field not in sample:
             raise KeyError(f"Sample does not contain field {field!r}")
         return np.asarray(sample[field])
@@ -292,8 +284,8 @@ class FastMRIDataset(BaseDataset):
             "sample_id": Path(filename).stem,
             "filename": filename,
             "slice_index": int(dataslice),
-            "kspace": None if kspace is None else np.asarray(kspace) if np is not None else kspace,
-            "mask": None if mask is None else np.asarray(mask) if np is not None else mask,
-            "target": None if target is None else np.asarray(target) if np is not None else target,
+            "kspace": None if kspace is None else np.asarray(kspace),
+            "mask": None if mask is None else np.asarray(mask),
+            "target": None if target is None else np.asarray(target),
             "metadata": dict(attrs),
         }
