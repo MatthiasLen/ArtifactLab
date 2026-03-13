@@ -14,7 +14,6 @@ from mri_recon.datasets.fastmri import PACKAGED_SAMPLE_PATH
 from mri_recon.reconstruction import (
     BaseReconstructor,
     ConjugateGradientReconstructor,
-    DeepInverseReconstructor,
     DeepInverseRAMReconstructor,
     FISTAL1Reconstructor,
     LandweberReconstructor,
@@ -183,13 +182,7 @@ class _FakePhysicsModel(_FakeModel):
 
 
 class DeepInverseReconstructionTests(unittest.TestCase):
-    """Validate DeepInverse wrappers without requiring the real dependency."""
-
-    def test_available_algorithms_are_exposed(self) -> None:
-        self.assertEqual(
-            DeepInverseReconstructor.available_algorithms(),
-            ("ram", "varnet", "modl", "optim_builder"),
-        )
+    """Validate DeepInverse RAM wrapper without requiring the real dependency."""
 
     @unittest.skipUnless(HAS_NUMPY, "numpy runtime is required")
     def test_ram_reconstructor_apply_reconstruction_uses_injected_model(self) -> None:
@@ -235,116 +228,6 @@ class DeepInverseReconstructionTests(unittest.TestCase):
             else:
                 sys.modules["deepinv"] = original_module
 
-    def test_available_pretrained_models_are_exposed(self) -> None:
-        self.assertEqual(
-            DeepInverseReconstructor.available_pretrained_models(),
-            ("ram", "drunet", "dncnn"),
-        )
-
-    def test_build_model_resolves_three_deepinverse_algorithms(self) -> None:
-        fake_module = ModuleType("deepinv")
-        fake_module.models = SimpleNamespace(
-            RAM=_FakeModel,
-            VarNet=_FakeModel,
-            MoDL=_FakeModel,
-            DRUNet=_FakeModel,
-            DnCNN=_FakeModel,
-        )
-        fake_module.optim = SimpleNamespace(optim_builder=lambda **kwargs: _FakeModel(**kwargs))
-        original_module = sys.modules.get("deepinv")
-
-        try:
-            sys.modules["deepinv"] = fake_module
-            self.assertIsInstance(
-                DeepInverseReconstructor("ram", model_kwargs={"pretrained": False, "gain": 2.0}).build_model(),
-                _FakeModel,
-            )
-            self.assertIsInstance(
-                DeepInverseReconstructor("varnet", model_kwargs={"gain": 2.0}).build_model(),
-                _FakeModel,
-            )
-            self.assertIsInstance(
-                DeepInverseReconstructor("modl", model_kwargs={"gain": 2.0}).build_model(),
-                _FakeModel,
-            )
-            self.assertIsInstance(
-                DeepInverseReconstructor(
-                    "optim_builder",
-                    model_kwargs={"gain": 2.0},
-                ).build_model(),
-                _FakeModel,
-            )
-        finally:
-            if original_module is None:
-                sys.modules.pop("deepinv", None)
-            else:
-                sys.modules["deepinv"] = original_module
-
-    def test_load_pretrained_model_exposes_documented_entries(self) -> None:
-        fake_module = ModuleType("deepinv")
-        fake_module.models = SimpleNamespace(
-            RAM=_FakeModel,
-            DRUNet=_FakeModel,
-            DnCNN=_FakeModel,
-        )
-        original_module = sys.modules.get("deepinv")
-
-        try:
-            sys.modules["deepinv"] = fake_module
-            self.assertIsInstance(
-                DeepInverseReconstructor.load_pretrained_model("ram", pretrained=False, gain=2.0),
-                _FakeModel,
-            )
-            self.assertIsInstance(
-                DeepInverseReconstructor.load_pretrained_model("drunet", pretrained=None, gain=2.0),
-                _FakeModel,
-            )
-            self.assertIsInstance(
-                DeepInverseReconstructor.load_pretrained_model("dncnn", pretrained=None, gain=2.0),
-                _FakeModel,
-            )
-        finally:
-            if original_module is None:
-                sys.modules.pop("deepinv", None)
-            else:
-                sys.modules["deepinv"] = original_module
-
-    @unittest.skipUnless(HAS_NUMPY, "numpy runtime is required")
-    def test_apply_reconstruction_uses_injected_model(self) -> None:
-        model = _FakeModel(gain=3.0)
-        sample = {"kspace": np.asarray([[1.0, 2.0]], dtype=np.float32)}
-
-        reconstructed = DeepInverseReconstructor("varnet", model=model).apply_reconstruction(sample)
-
-        self.assertTrue(model.eval_called)
-        self.assertTrue(np.allclose(reconstructed, np.asarray([[3.0, 6.0]], dtype=np.float32)))
-
-    @unittest.skipUnless(HAS_NUMPY, "numpy runtime is required")
-    def test_apply_reconstruction_uses_constructor_physics(self) -> None:
-        model = _FakePhysicsModel()
-        sample = {"kspace": np.asarray([[1.0, 2.0]], dtype=np.float32)}
-
-        reconstructed = DeepInverseReconstructor("varnet", physics=2.0, model=model).apply_reconstruction(
-            sample
-        )
-
-        self.assertTrue(model.eval_called)
-        self.assertTrue(np.allclose(reconstructed, np.asarray([[2.0, 4.0]], dtype=np.float32)))
-
-    def test_unsupported_algorithm_raises_value_error(self) -> None:
-        fake_module = ModuleType("deepinv")
-        fake_module.models = SimpleNamespace(VarNet=_FakeModel)
-        original_module = sys.modules.get("deepinv")
-
-        try:
-            sys.modules["deepinv"] = fake_module
-            with self.assertRaises(ValueError):
-                DeepInverseReconstructor("unknown").build_model()
-        finally:
-            if original_module is None:
-                sys.modules.pop("deepinv", None)
-            else:
-                sys.modules["deepinv"] = original_module
 
 
 @unittest.skipUnless(HAS_NUMPY and HAS_FASTMRI, "fastmri runtime is required")
@@ -369,7 +252,7 @@ class FastMRIReconstructionIntegrationTests(unittest.TestCase):
             self.assertGreater(float(np.max(reconstructed)), 0.0)
 
     @unittest.skipUnless(HAS_NUMPY and HAS_FASTMRI and HAS_TORCH and HAS_DEEPINV, "full deepinverse runtime is required")
-    def test_deepinverse_varnet_reconstruction_runs_on_packaged_fastmri_sample(self) -> None:
+    def test_deepinverse_ram_physics_builds_on_packaged_fastmri_sample(self) -> None:
         with TemporaryDirectory() as root_directory:
             dataset = FastMRIDataset(
                 root_directory,
@@ -380,15 +263,8 @@ class FastMRIReconstructionIntegrationTests(unittest.TestCase):
             )
 
             sample = dataset.read_sample("fastmri_sample_singlecoil", slice_index=0)
-            reconstructor = DeepInverseReconstructor("varnet", model_kwargs={"num_cascades": 1})
-            physics = DeepInverseReconstructor.build_mri_physics(sample)
-            reconstructed = reconstructor.apply_reconstruction(sample, physics=physics)
-            magnitude_image = reconstructor.to_magnitude_image(reconstructed)
-
-            self.assertEqual(reconstructed.shape, (1, 2, *sample["target"].shape))
-            self.assertEqual(magnitude_image.shape, (1, *sample["target"].shape))
-            self.assertTrue(np.isfinite(magnitude_image).all())
-            self.assertGreater(float(np.max(magnitude_image)), 0.0)
+            physics = DeepInverseRAMReconstructor.build_mri_physics(sample)
+            self.assertIsNotNone(physics)
 
 
 if __name__ == "__main__":

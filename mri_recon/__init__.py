@@ -20,7 +20,7 @@ from .metrics import (
 )
 from .reconstruction import (
     BaseReconstructor,
-    DeepInverseReconstructor,
+    DeepInverseRAMReconstructor,
     LandweberReconstructor,
     ZeroFilledReconstructor,
 )
@@ -30,7 +30,7 @@ __all__ = [
     "BaseMetric",
     "BaseReconstructor",
     "BlurEffectMetric",
-    "DeepInverseReconstructor",
+    "DeepInverseRAMReconstructor",
     "EntropyMetric",
     "FastMRIDataset",
     "GMSDMetric",
