@@ -21,7 +21,7 @@ from mri_recon.reconstruction import (
     TikhonovReconstructor,
     ZeroFilledReconstructor,
 )
-from mri_recon.reconstruction.classic import _fft2c
+from mri_recon.reconstruction.OLD_classic import _fft2c
 
 
 HAS_NUMPY = importlib.util.find_spec("numpy") is not None

@@ -1,33 +1,54 @@
-"""Shared interface for MRI image and k-space distortions."""
+import torch
+import deepinv as dinv
 
-from __future__ import annotations
+class BaseDistortion(dinv.physics.LinearPhysics):
+    """Base class for kspace distortions.
+    """
+    def A(self, y: torch.Tensor) -> torch.Tensor:
+        """Distortion forward pass."""
+        return y
 
-from abc import ABC, abstractmethod
-from typing import Any
+    def A_adjoint(self, y: torch.Tensor) -> torch.Tensor:
+        """Apply the distortion's adjoint operation. If the distortion is elementwise, this will be equal to apply."""
+        return self.A(y)
 
-import numpy as np
+class DistortedKspaceMultiCoilMRI(dinv.physics.MultiCoilMRI):
+    r"""
+    Multi-coil MRI with additional kspace distortion.
+    
+    Multi-coil 2D or 3D MRI operator.
 
+    The linear operator operates in 2D slices or 3D volumes and is defined as:
 
-class BaseDistortion(ABC):
-    """Compact base interface for distortion operators."""
+    .. math::
 
-    def __call__(self, data: Any, **kwargs: Any) -> np.ndarray:
-        return self.apply(data, **kwargs)
+        y_n = \text{diag}(p) F \text{diag}(s_n) x
 
-    @abstractmethod
-    def apply(self, data: Any, **kwargs: Any) -> np.ndarray:
-        """Apply the distortion and return a NumPy array."""
+    for :math:`n=1,\dots,N` coils, where :math:`y_n` are the measurements from the cth coil, :math:`\text{diag}(p)` is the acceleration mask, :math:`F` is the Fourier transform and :math:`\text{diag}(s_n)` is the nth coil sensitivity.
 
-    def to_numpy(self, data: Any) -> np.ndarray:
-        if (
-            hasattr(data, "detach")
-            and hasattr(data, "cpu")
-            and hasattr(data, "numpy")
-        ):
-            data = data.detach().cpu().numpy()
-        array = np.asarray(data)
-        if array.ndim < 2:
-            raise ValueError(
-                "Distortions require arrays with at least two dimensions"
-            )
-        return array
+    The data ``x`` should be of shape (B,C,H,W) or (B,C,D,H,W) where C=2 is the channels (real and imaginary) and D is optional dimension for 3D MRI.
+    Then, the resulting measurements ``y`` will be of shape (B,C,N,(D,)H,W) where N is the coils dimension.
+
+    :param torch.Tensor mask: binary sampling mask which should have shape (H,W), (C,H,W), (B,C,H,W), or (B,C,...,H,W). If None, generate mask of ones with ``img_size``.
+    :param torch.Tensor, str coil_maps: either ``Tensor``, integer, or ``None``. If complex valued (i.e. of complex dtype) coil sensitvity maps which should have shape (H,W), (N,H,W), (B,N,H,W) or (B,N,...,H,W).
+        If None, generate flat coil maps of ones with ``img_size``. If integer, simulate birdcage coil maps with integer number of coils (this requires ``sigpy`` installed).
+    :param tuple img_size: if ``mask`` or ``coil_maps`` not specified, flat ``mask`` or ``coil_maps`` of ones are created using ``img_size``,
+        where ``img_size`` can be of any shape specified above. If ``mask`` or ``coil_maps`` provided, ``img_size`` is ignored.
+    :param bool three_d: if ``True``, calculate Fourier transform in 3D for 3D data (i.e. data of shape (B,C,D,H,W) where D is depth).
+    :param torch.device, str device: specify which device you want to use (i.e, cpu or gpu).
+    """
+    def __init__(self, distortion: BaseDistortion, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.distortion = distortion
+    
+    def A(self, x: torch.Tensor) -> torch.Tensor:
+        y = super().A(x)
+        y = y.squeeze(2) # remove coil dim if singlecoil
+        return self.distortion(y)
+
+    def A_adjoint(self, y: torch.Tensor) -> torch.Tensor:
+        if len(y.shape) == (5 if self.three_d else 4):
+            y = y.unsqueeze(2) # add coil dim if singlecoil
+            
+        y = self.distortion.A_adjoint(y)
+        return super().A_adjoint(y)
