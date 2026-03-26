@@ -9,9 +9,14 @@ class RAMReconstructor(dinv.models.Reconstructor):
 
     :param float default_sigma: default sigma for RAM input. Overriden if physics already has a sigma (e.g. in a Gaussian noise model) at inference time.
     """
-    def __init__(self, default_sigma=0.05):
+    def __init__(self, default_sigma=0.05, device: torch.device = None) -> None:
         super().__init__()
-        self.ram = dinv.models.RAM()
+        
+        if device is None:
+            device = torch.device("cpu")
+        self.device = device
+        
+        self.ram = dinv.models.RAM(device=device)
         self.default_sigma = default_sigma
 
     def forward(self, y, physics):

@@ -46,7 +46,8 @@ class IsotropicResolutionReduction(BaseDistortion):
     def A(self, y: torch.Tensor) -> torch.Tensor:
         # Hard radial cutoff: removes high-frequency detail isotropically.
         mask = _radial_frequency(y.shape) <= self.radius_fraction
+        mask = mask.to(y.device)
         return y * mask
-    
+
     def A_adjoint(self, y: torch.Tensor,) -> torch.Tensor:
         return self(y)

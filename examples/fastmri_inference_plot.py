@@ -25,14 +25,14 @@ DISTORTIONS = [
     "Isotropic LP",
 ]
 
-def choose_algorithm(name):
+def choose_algorithm(name, device):
     match name:
         case "zero-filled":
             return ZeroFilledReconstructor()
         case "conjugate-gradient":
             return ConjugateGradientReconstructor(max_iter=20)
         case "ram":
-            return RAMReconstructor(default_sigma=0.05)
+            return RAMReconstructor(default_sigma=0.05, device=device)
         case _:
             raise ValueError(f"Unknown algorithm {name!r}")
 
@@ -57,7 +57,7 @@ if __name__ == "__main__":
 
     for algo_name in ALGORITHMS if args.algorithm == "" else [args.algorithm]:
         for distortion_name in DISTORTIONS if args.distortion == "" else [args.distortion]:
-            algo = choose_algorithm(algo_name)
+            algo = choose_algorithm(algo_name, device)
             distortion = choose_distortion(distortion_name)
 
             for i, (_, y) in enumerate(iter(torch.utils.data.DataLoader(dataset))):
@@ -70,6 +70,9 @@ if __name__ == "__main__":
                 y = y.to(device)
                 y_distorted = physics.distortion(y)
 
+                print("devices")
+                print(y.device, y_distorted.device)
+                
                 x_clean = algo(y, physics_clean)
                 x_uncorrected = algo(y_distorted, physics_clean)
                 x_corrected = algo(y_distorted, physics)
