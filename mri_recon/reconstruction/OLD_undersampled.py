@@ -7,7 +7,7 @@ from typing import Any
 import numpy as np
 
 from .base import BaseReconstructor
-from .classic import _fft2c, _ifft2c
+from .OLD_classic import _fft2c, _ifft2c
 
 
 class POCSReconstructor(BaseReconstructor):
