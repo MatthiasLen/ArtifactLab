@@ -69,9 +69,6 @@ if __name__ == "__main__":
                 physics = DistortedKspaceMultiCoilMRI(distortion=distortion, img_size=(1, 2, *y.shape[-2:]), device=device)
                 y = y.to(device)
                 y_distorted = physics.distortion(y)
-
-                print("devices")
-                print(y.device, y_distorted.device)
                 
                 x_clean = algo(y, physics_clean)
                 x_uncorrected = algo(y_distorted, physics_clean)
@@ -92,5 +89,5 @@ if __name__ == "__main__":
                     close=True,
                     suptitle=f"Algo {algo_name}, distortion {distortion_name}, Sample {i}",
                     save_fn=REPORT_DIR / f"{algo_name}_{distortion_name}_sample_{i}.png",
-                    fontsize=5,
+                    fontsize=3,
                 )
