@@ -17,12 +17,24 @@ from mri_recon.reconstruction import *
 REPORT_DIR = Path("reports") / "fastmri_inference_plot"
 REPORT_DIR.mkdir(parents=True, exist_ok=True)
 ALGORITHMS = [
-    "zero-filled",
+    # "zero-filled",
     "conjugate-gradient",
-    "ram"
+    "ram",
+    # "dip"
+    # "tv-pgd",
+    # "wavelet-fista",
+    # "tv-fista",
 ]
 DISTORTIONS = [
     "Isotropic LP",
+]
+METRICS = [
+    "PSNR",
+    "NMSE",
+    "SSIM",
+    "HaarPSI",
+    "SharpnessIndex",
+    "BlurStrength",
 ]
 
 def choose_algorithm(name, device):
@@ -33,6 +45,14 @@ def choose_algorithm(name, device):
             return ConjugateGradientReconstructor(max_iter=20)
         case "ram":
             return RAMReconstructor(default_sigma=0.05, device=device)
+        case "dip":
+            return DeepImagePriorReconstructor(img_size=(640, 368), n_iter=100)
+        case "tv-pgd":
+            return TVPGDReconstructor(n_iter=100)
+        case "tv-fista":
+            return TVFISTAReconstructor(n_iter=100)
+        case "wavelet-fista":
+            return WaveletFISTAReconstructor(n_iter=100, device=device)
         case _:
             raise ValueError(f"Unknown algorithm {name!r}")
 
@@ -42,6 +62,21 @@ def choose_distortion(name):
             return IsotropicResolutionReduction(radius_fraction=0.1)
         case _:
             raise ValueError(f"Unknown distortion {name!r}")
+
+def choose_metric(name):
+    match name:
+        case "PSNR":
+            return dinv.metric.PSNR(max_pixel=None, complex_abs=True)
+        case "NMSE":
+            return dinv.metric.NMSE(complex_abs=True)
+        case "SSIM":
+            return dinv.metric.SSIM(max_pixel=None, complex_abs=True)
+        case "HaarPSI":
+            return dinv.metric.HaarPSI(norm_inputs="min_max", complex_abs=True)
+        case "BlurStrength":
+            return dinv.metric.BlurStrength(complex_abs=True)
+        case "SharpnessIndex":
+            return dinv.metric.SharpnessIndex(complex_abs=True)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
@@ -53,11 +88,11 @@ if __name__ == "__main__":
 
     device = dinv.utils.get_device()
     dataset = dinv.datasets.FastMRISliceDataset(args.source, slice_index="middle")
-    metric = dinv.metric.PSNR(max_pixel=None)
+    metrics = [choose_metric(m) for m in METRICS]
 
     for algo_name in ALGORITHMS if args.algorithm == "" else [args.algorithm]:
         for distortion_name in DISTORTIONS if args.distortion == "" else [args.distortion]:
-            algo = choose_algorithm(algo_name, device)
+            algo = choose_algorithm(algo_name, device).to(device)
             distortion = choose_distortion(distortion_name)
 
             for i, (_, y) in enumerate(iter(torch.utils.data.DataLoader(dataset))):
@@ -70,20 +105,26 @@ if __name__ == "__main__":
                 y = y.to(device)
                 y_distorted = physics.distortion(y)
                 
-                x_clean = algo(y, physics_clean)
+                x_clean = ConjugateGradientReconstructor()(y, physics_clean)
                 x_uncorrected = algo(y_distorted, physics_clean)
                 x_corrected = algo(y_distorted, physics)
 
                 dinv.utils.plot(
                     {
-                        "Undistorted ksp recon": x_clean,
+                        "Undistorted ksp, SENSE recon": x_clean,
                         "Distorted ksp, uncorrected recon": x_uncorrected,
                         "Distorted ksp, corrected recon": x_corrected,
                     },
                     subtitles=[
                         "",
-                        f"{metric.__class__.__name__} {metric(x_uncorrected, x_clean).item():.1f} dB",
-                        f"{metric.__class__.__name__} {metric(x_corrected, x_clean).item():.1f} dB",
+                        "\n".join(
+                            f"{m.__class__.__name__} {m(x_uncorrected, x_clean).item():.2f}"
+                            for m in metrics
+                        ),
+                        "\n".join(
+                            f"{m.__class__.__name__} {m(x_corrected, x_clean).item():.2f}"
+                            for m in metrics
+                        ),
                     ],
                     show=False,
                     close=True,

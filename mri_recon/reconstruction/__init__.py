@@ -1,2 +1,2 @@
-from .deep import RAMReconstructor
-from .classic import ZeroFilledReconstructor, ConjugateGradientReconstructor
+from .deep import RAMReconstructor, DeepImagePriorReconstructor
+from .classic import ZeroFilledReconstructor, ConjugateGradientReconstructor, TVPGDReconstructor, WaveletFISTAReconstructor, TVFISTAReconstructor
