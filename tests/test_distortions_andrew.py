@@ -1,6 +1,3 @@
-# TODO test that distortions all have good adjointness + ideally norm
-# TODO test that distortedMCMRI with distortions all have good adjointness + ideally norm
-
 import os, sys
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -9,7 +6,7 @@ import pytest
 import torch
 import deepinv as dinv
 
-from mri_recon.distortions import *
+from mri_recon.distortions import BaseDistortion, IsotropicResolutionReduction, DistortedKspaceMultiCoilMRI
 
 DISTORTIONS = [
     "None",

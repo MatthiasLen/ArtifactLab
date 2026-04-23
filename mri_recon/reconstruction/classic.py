@@ -17,8 +17,9 @@ class TVPGDReconstructor(dinv.models.Reconstructor):
     Proximal Gradient Descent algorithm regularised by Total Variation (TV) regulariser.
 
     :param int n_iter: max number of iterations to run PGD. Defaults to 100.
+    :param bool verbose: whether plot converge plots
     """
-    def __init__(self, n_iter: int = 100, **kwargs):
+    def __init__(self, n_iter: int = 100, verbose: bool = True, **kwargs):
         super().__init__()
 
         self.model = dinv.optim.PGD(
@@ -28,13 +29,17 @@ class TVPGDReconstructor(dinv.models.Reconstructor):
             lambda_reg=1e-2,  # TV regularisation parameter,
             early_stop=True,
             max_iter=n_iter,
-            verbose=True,
+            verbose=verbose,
             thres_conv=1e-7,
         )
 
     def forward(self, y, physics):
-        out, metrics = self.model(y, physics, compute_metrics=True)
-        dinv.utils.plotting.plot_curves(metrics)
+        out = self.model(y, physics, compute_metrics=self.model.verbose)
+        
+        if self.model.verbose:
+            out, metrics = out
+            dinv.utils.plotting.plot_curves(metrics)
+
         return out
     
 class WaveletFISTAReconstructor(dinv.models.Reconstructor):
@@ -42,8 +47,9 @@ class WaveletFISTAReconstructor(dinv.models.Reconstructor):
     FISTA algorithm regularised by wavelet regulariser.
 
     :param int n_iter: max number of iterations to run FISTA. Defaults to 100.
+    :param bool verbose: whether plot converge plots
     """
-    def __init__(self, n_iter: int = 100, device="cpu", **kwargs):
+    def __init__(self, n_iter: int = 100, device="cpu", verbose: bool = True, **kwargs):
         super().__init__()
 
         self.model = dinv.optim.FISTA(
@@ -53,13 +59,17 @@ class WaveletFISTAReconstructor(dinv.models.Reconstructor):
             lambda_reg=1e-3,
             early_stop=True,
             max_iter=n_iter,
-            verbose=True,
+            verbose=verbose,
             thres_conv=1e-7,
         ).to(device)
 
     def forward(self, y, physics):
-        out, metrics = self.model(y, physics, compute_metrics=True)
-        dinv.utils.plotting.plot_curves(metrics)
+        out = self.model(y, physics, compute_metrics=self.model.verbose)
+
+        if self.model.verbose:
+            out, metrics = out
+            dinv.utils.plotting.plot_curves(metrics)
+
         return out
 
 class TVFISTAReconstructor(dinv.models.Reconstructor):
@@ -67,8 +77,9 @@ class TVFISTAReconstructor(dinv.models.Reconstructor):
     FISTA algorithm regularised by Total Variation (TV) regulariser.
 
     :param int n_iter: max number of iterations to run FISTA. Defaults to 100.
+    :param bool verbose: whether plot converge plots
     """
-    def __init__(self, n_iter: int = 100, **kwargs):
+    def __init__(self, n_iter: int = 100, verbose: bool = True, **kwargs):
         super().__init__()
 
         self.model = dinv.optim.FISTA(
@@ -78,11 +89,15 @@ class TVFISTAReconstructor(dinv.models.Reconstructor):
             lambda_reg=1e-2,  # TV regularisation parameter,
             early_stop=True,
             max_iter=n_iter,
-            verbose=True,
+            verbose=verbose,
             thres_conv=1e-7,
         )
 
     def forward(self, y, physics):
-        out, metrics = self.model(y, physics, compute_metrics=True)
-        dinv.utils.plotting.plot_curves(metrics)
+        out = self.model(y, physics, compute_metrics=self.model.verbose)
+        
+        if self.model.verbose:
+            out, metrics = out
+            dinv.utils.plotting.plot_curves(metrics)
+
         return out

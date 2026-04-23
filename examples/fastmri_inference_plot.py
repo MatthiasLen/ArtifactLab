@@ -19,8 +19,8 @@ REPORT_DIR.mkdir(parents=True, exist_ok=True)
 ALGORITHMS = [
     # "zero-filled",
     "conjugate-gradient",
-    # "ram",
-    # "dip"
+    "ram",
+    # "dip",
     # "tv-pgd",
     # "wavelet-fista",
     # "tv-fista",
@@ -37,7 +37,7 @@ METRICS = [
     "BlurStrength",
 ]
 
-def choose_algorithm(name, device):
+def choose_algorithm(name: str, img_size: tuple = (640, 368), device: torch.device = "cpu") -> dinv.models.Reconstructor:
     match name:
         case "zero-filled":
             return ZeroFilledReconstructor()
@@ -46,7 +46,7 @@ def choose_algorithm(name, device):
         case "ram":
             return RAMReconstructor(default_sigma=0.05, device=device)
         case "dip":
-            return DeepImagePriorReconstructor(img_size=(640, 368), n_iter=100)
+            return DeepImagePriorReconstructor(img_size=img_size, n_iter=100)
         case "tv-pgd":
             return TVPGDReconstructor(n_iter=100)
         case "tv-fista":
@@ -56,14 +56,14 @@ def choose_algorithm(name, device):
         case _:
             raise ValueError(f"Unknown algorithm {name!r}")
 
-def choose_distortion(name):
+def choose_distortion(name: str) -> BaseDistortion:
     match name:
         case "Isotropic LP":
             return IsotropicResolutionReduction(radius_fraction=0.1)
         case _:
             raise ValueError(f"Unknown distortion {name!r}")
 
-def choose_metric(name):
+def choose_metric(name: str) -> dinv.metric.Metric:
     match name:
         case "PSNR":
             return dinv.metric.PSNR(max_pixel=None, complex_abs=True)
@@ -92,13 +92,14 @@ if __name__ == "__main__":
 
     for algo_name in ALGORITHMS if args.algorithm == "" else [args.algorithm]:
         for distortion_name in DISTORTIONS if args.distortion == "" else [args.distortion]:
-            algo = choose_algorithm(algo_name, device).to(device)
-            distortion = choose_distortion(distortion_name)
-
             for i, batch in enumerate(iter(torch.utils.data.DataLoader(dataset))):
+
                 if i > args.num_samples: continue
                 y = batch[1] # batch is a tuple of (x, y) or (x, y, params) where x is GT (could be torch.nan), y is kspace, and params is a dict containing mask (if test set)
                 print(f"Evaluating algo {algo_name}, distortion {distortion_name}, sample {i}...")
+
+                algo = choose_algorithm(algo_name, img_size=y.shape[-2:], device=device).to(device)
+                distortion = choose_distortion(distortion_name)
 
                 # TODO allow loading multicoil data
                 physics_clean = DistortedKspaceMultiCoilMRI(distortion=BaseDistortion(), img_size=(1, 2, *y.shape[-2:]), device=device)

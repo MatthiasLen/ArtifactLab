@@ -52,7 +52,7 @@ class DeepImagePriorReconstructor(dinv.models.Reconstructor):
 
         self.model = dinv.models.DeepImagePrior(
             dinv.models.ConvDecoder(
-                img_size=(2, *img_size), in_size=in_size, channels=channels
+                img_size=(2, *img_size[-2:]), in_size=in_size, channels=channels
             ),
             learning_rate=lr,
             iterations=n_iter,
