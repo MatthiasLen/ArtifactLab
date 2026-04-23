@@ -19,7 +19,7 @@ REPORT_DIR.mkdir(parents=True, exist_ok=True)
 ALGORITHMS = [
     # "zero-filled",
     "conjugate-gradient",
-    "ram",
+    # "ram",
     # "dip"
     # "tv-pgd",
     # "wavelet-fista",
@@ -95,8 +95,9 @@ if __name__ == "__main__":
             algo = choose_algorithm(algo_name, device).to(device)
             distortion = choose_distortion(distortion_name)
 
-            for i, (_, y) in enumerate(iter(torch.utils.data.DataLoader(dataset))):
+            for i, batch in enumerate(iter(torch.utils.data.DataLoader(dataset))):
                 if i > args.num_samples: continue
+                y = batch[1] # batch is a tuple of (x, y) or (x, y, params) where x is GT (could be torch.nan), y is kspace, and params is a dict containing mask (if test set)
                 print(f"Evaluating algo {algo_name}, distortion {distortion_name}, sample {i}...")
 
                 # TODO allow loading multicoil data
