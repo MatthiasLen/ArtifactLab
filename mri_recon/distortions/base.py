@@ -37,8 +37,10 @@ class DistortedKspaceMultiCoilMRI(dinv.physics.MultiCoilMRI):
     :param bool three_d: if ``True``, calculate Fourier transform in 3D for 3D data (i.e. data of shape (B,C,D,H,W) where D is depth).
     :param torch.device, str device: specify which device you want to use (i.e, cpu or gpu).
     """
-    def __init__(self, distortion: BaseDistortion, *args, **kwargs):
+    def __init__(self, distortion: BaseDistortion = None, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        if distortion is None:
+            distortion = BaseDistortion()
         self.distortion = distortion
     
     def A(self, x: torch.Tensor) -> torch.Tensor:

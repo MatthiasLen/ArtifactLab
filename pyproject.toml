@@ -5,12 +5,37 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
-    "deepinv==0.3.7",
-    "fastmri==0.3.0",
-    "h5py==3.16.0",
+    "deepinv>=0.3.8",
+    "fastmri>=0.3.0",
+    "h5py>=3.16.0",
     "matplotlib>=3.9.0",
-    "numpy==2.4.3",
-    "pydicom==3.0.1",
+    "numpy>=2.4.3",
+    "ptwt>=1.0.1",
+    "pydicom>=3.0.1",
     "pytest>=9.0.2",
+    "torch>=2.11.0",
     "torchmetrics>=1.9.0",
+    "torchvision>=0.26.0",
 ]
+
+[tool.uv.sources]
+torch = [
+    { index = "pytorch-cu128", marker = "platform_system == 'Windows'" },
+    { index = "pytorch-cu128", marker = "platform_system == 'Linux'" },
+    { index = "pytorch-cpu", marker = "platform_system == 'Darwin'" },
+]
+torchvision = [
+    { index = "pytorch-cu128", marker = "platform_system == 'Windows'" },
+    { index = "pytorch-cu128", marker = "platform_system == 'Linux'" },
+    { index = "pytorch-cpu", marker = "platform_system == 'Darwin'" },
+]
+
+[[tool.uv.index]]
+name = "pytorch-cu128"
+url = "https://download.pytorch.org/whl/cu128"
+explicit = true
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
