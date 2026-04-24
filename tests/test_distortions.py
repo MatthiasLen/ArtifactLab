@@ -15,6 +15,7 @@ from mri_recon.distortions import (
     GaussianNoiseDistortion,
     IsotropicResolutionReduction,
     OffCenterAnisotropicGaussianKspaceBiasField,
+    TranslationMotionDistortion,
 )
 
 DISTORTIONS = [
@@ -22,6 +23,7 @@ DISTORTIONS = [
     "Isotropic LP",
     "Gaussian bias field",
     "Off-center anisotropic Gaussian bias field",
+    "Translation motion",
 ]
 
 
@@ -41,6 +43,8 @@ def choose_distortion(name):
                 center_y_fraction=-0.1,
                 edge_gain=0.3,
             )
+        case "Translation motion":
+            return TranslationMotionDistortion(shift_x_pixels=8.0, shift_y_pixels=4.0)
         case _:
             raise ValueError(f"Unknown distortion {name!r}")
 
@@ -150,3 +154,23 @@ def test_centered_isotropic_bias_matches_anisotropic_special_case(device):
     y_anisotropic = anisotropic.A(y)
 
     assert torch.allclose(y_centered, y_anisotropic)
+
+
+def test_translation_motion_zero_shift_is_identity(device):
+    distortion = TranslationMotionDistortion(shift_x_pixels=0.0, shift_y_pixels=0.0)
+    y = torch.randn((1, 2, 64, 64), device=device)
+
+    y_distorted = distortion.A(y)
+
+    assert torch.equal(y_distorted, y)
+
+
+def test_translation_motion_preserves_kspace_magnitude(device):
+    distortion = TranslationMotionDistortion(shift_x_pixels=8.0, shift_y_pixels=4.0)
+    y = torch.randn((1, 2, 64, 64), device=device)
+
+    y_distorted = distortion.A(y)
+    y_complex = torch.view_as_complex(y.movedim(1, -1).contiguous())
+    y_distorted_complex = torch.view_as_complex(y_distorted.movedim(1, -1).contiguous())
+
+    assert torch.allclose(torch.abs(y_distorted_complex), torch.abs(y_complex))
