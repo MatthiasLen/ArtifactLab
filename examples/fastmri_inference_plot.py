@@ -17,13 +17,14 @@ from mri_recon.reconstruction import *
 REPORT_DIR = Path("reports") / "fastmri_inference_plot"
 REPORT_DIR.mkdir(parents=True, exist_ok=True)
 ALGORITHMS = [
-    "zero-filled",
-    #"conjugate-gradient",
-    #"ram",
-    #"dip",
-    #"tv-pgd",
-    "wavelet-fista",
-    "tv-fista",
+    # "zero-filled",
+    # "conjugate-gradient",
+    # "ram",
+    # "dip",
+    # "tv-pgd",
+    # "wavelet-fista",
+    # "tv-fista",
+    "tv-pdhg",
 ]
 DISTORTIONS = [
     "Isotropic LP",
@@ -50,7 +51,9 @@ def choose_algorithm(name: str, img_size: tuple = (640, 368), device: torch.devi
         case "tv-pgd":
             return TVPGDReconstructor(n_iter=100)
         case "tv-fista":
-            return TVFISTAReconstructor(n_iter=100)
+            return TVFISTAReconstructor(n_iter=200)
+        case "tv-pdhg":
+            return TVPDHGReconstructor(n_iter=60)
         case "wavelet-fista":
             return WaveletFISTAReconstructor(n_iter=100, device=device)
         case _:
