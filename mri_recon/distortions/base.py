@@ -22,6 +22,59 @@ def _radial_frequency(shape: tuple[int, ...]) -> torch.Tensor:
     return radius / max_radius
 
 
+def _normalized_axis_frequencies(
+    shape: tuple[int, ...],
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """Return absolute Cartesian frequencies normalized to ``[0, 1]`` per axis."""
+
+    kx, ky = _frequency_grids(shape)
+    max_abs_kx = float(torch.max(torch.abs(kx)))
+    max_abs_ky = float(torch.max(torch.abs(ky)))
+
+    if max_abs_kx <= 0.0:
+        normalized_kx = torch.zeros_like(kx)
+    else:
+        normalized_kx = torch.abs(kx) / max_abs_kx
+
+    if max_abs_ky <= 0.0:
+        normalized_ky = torch.zeros_like(ky)
+    else:
+        normalized_ky = torch.abs(ky) / max_abs_ky
+
+    return normalized_kx, normalized_ky
+
+
+def _normalized_frequency_grids(
+    shape: tuple[int, ...],
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """Return Cartesian frequency grids normalized by the sampled max radius."""
+
+    kx, ky = _frequency_grids(shape)
+    max_radius = torch.sqrt(kx * kx + ky * ky).max()
+    if float(max_radius) <= 0.0:
+        return torch.zeros_like(kx), torch.zeros_like(ky)
+    return kx / max_radius, ky / max_radius
+
+
+def _validate_cartesian_kspace_tensor(y: torch.Tensor) -> None:
+    """Validate the repository's 2D Cartesian k-space tensor convention."""
+
+    if y.ndim not in (4, 5):
+        raise ValueError(
+            "Expected k-space with shape (B, 2, H, W) or (B, 2, N, H, W), "
+            f"got tensor with shape {tuple(y.shape)}"
+        )
+    if y.shape[1] != 2:
+        raise ValueError(
+            "Expected real/imaginary channel dimension of size 2 at axis 1, "
+            f"got shape {tuple(y.shape)}"
+        )
+    if not torch.is_floating_point(y):
+        raise TypeError(f"Expected floating-point real/imaginary tensor, got dtype {y.dtype}")
+    if y.shape[-2] <= 0 or y.shape[-1] <= 0:
+        raise ValueError(f"Spatial k-space dimensions must be positive, got shape {tuple(y.shape)}")
+
+
 class BaseDistortion(dinv.physics.LinearPhysics):
     """Base class for deterministic k-space distortions.
 

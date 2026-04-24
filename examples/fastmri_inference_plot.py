@@ -31,10 +31,12 @@ ALGORITHMS = [
     # "tv-pdhg",
 ]
 DISTORTIONS = [
+    "Phase-encode ghosting",
     "Segmented translation motion",
     "Translation motion",
     "Off-center anisotropic Gaussian bias field",
     "Gaussian bias field",
+    "Anisotropic LP",
     "Gaussian noise",
     "Isotropic LP",
 ]
@@ -124,6 +126,18 @@ def choose_algorithm(
 
 def choose_distortion(name: str) -> BaseDistortion:
     match name:
+        case "Phase-encode ghosting":
+            return PhaseEncodeGhostingDistortion(
+                line_period=2,
+                line_offset=1,
+                phase_error_radians=torch.pi / 2,
+                corrupted_line_scale=1.0,
+            )
+        case "Anisotropic LP":
+            return AnisotropicResolutionReduction(
+                kx_radius_fraction=1.0,
+                ky_radius_fraction=0.25,
+            )
         case "Isotropic LP":
             return IsotropicResolutionReduction(radius_fraction=0.1)
         case "Off-center anisotropic Gaussian bias field":

@@ -4,26 +4,11 @@ from __future__ import annotations
 
 import torch
 
-from mri_recon.distortions.base import BaseDistortion, _frequency_grids
-
-
-def _validate_cartesian_kspace_tensor(y: torch.Tensor) -> None:
-    """Validate the repository's 2D Cartesian k-space tensor convention."""
-
-    if y.ndim not in (4, 5):
-        raise ValueError(
-            "Expected k-space with shape (B, 2, H, W) or (B, 2, N, H, W), "
-            f"got tensor with shape {tuple(y.shape)}"
-        )
-    if y.shape[1] != 2:
-        raise ValueError(
-            "Expected real/imaginary channel dimension of size 2 at axis 1, "
-            f"got shape {tuple(y.shape)}"
-        )
-    if not torch.is_floating_point(y):
-        raise TypeError(f"Expected floating-point real/imaginary tensor, got dtype {y.dtype}")
-    if y.shape[-2] <= 0 or y.shape[-1] <= 0:
-        raise ValueError(f"Spatial k-space dimensions must be positive, got shape {tuple(y.shape)}")
+from mri_recon.distortions.base import (
+    BaseDistortion,
+    _frequency_grids,
+    _validate_cartesian_kspace_tensor,
+)
 
 
 class TranslationMotionDistortion(BaseDistortion):

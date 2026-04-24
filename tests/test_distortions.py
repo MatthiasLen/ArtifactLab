@@ -8,12 +8,14 @@ import pytest
 import torch
 
 from mri_recon.distortions import (
+    AnisotropicResolutionReduction,
     BaseDistortion,
     DistortedKspaceMultiCoilMRI,
     GaussianKspaceBiasField,
     GaussianNoiseDistortion,
     IsotropicResolutionReduction,
     OffCenterAnisotropicGaussianKspaceBiasField,
+    PhaseEncodeGhostingDistortion,
     SegmentedTranslationMotionDistortion,
     TranslationMotionDistortion,
 )
@@ -21,8 +23,10 @@ from mri_recon.distortions import (
 DISTORTIONS = [
     "None",
     "Isotropic LP",
+    "Anisotropic LP",
     "Gaussian bias field",
     "Off-center anisotropic Gaussian bias field",
+    "Phase-encode ghosting",
     "Translation motion",
     "Segmented translation motion",
 ]
@@ -34,6 +38,11 @@ def choose_distortion(name):
             return BaseDistortion()
         case "Isotropic LP":
             return IsotropicResolutionReduction(radius_fraction=0.6)
+        case "Anisotropic LP":
+            return AnisotropicResolutionReduction(
+                kx_radius_fraction=1.0,
+                ky_radius_fraction=0.35,
+            )
         case "Gaussian bias field":
             return GaussianKspaceBiasField(width_fraction=0.35, edge_gain=0.4)
         case "Off-center anisotropic Gaussian bias field":
@@ -43,6 +52,13 @@ def choose_distortion(name):
                 center_x_fraction=0.15,
                 center_y_fraction=-0.1,
                 edge_gain=0.3,
+            )
+        case "Phase-encode ghosting":
+            return PhaseEncodeGhostingDistortion(
+                line_period=2,
+                line_offset=1,
+                phase_error_radians=torch.pi / 2,
+                corrupted_line_scale=1.0,
             )
         case "Translation motion":
             return TranslationMotionDistortion(shift_x_pixels=8.0, shift_y_pixels=4.0)
@@ -119,6 +135,33 @@ def test_gaussian_noise_distortion_preserves_shape_and_changes_values(device):
 def test_gaussian_noise_distortion_zero_sigma_is_identity(device):
     distortion = GaussianNoiseDistortion(sigma=0.0)
     y = torch.randn((1, 2, 64, 64), device=device)
+
+    y_distorted = distortion.A(y)
+
+    assert torch.equal(y_distorted, y)
+
+
+def test_anisotropic_resolution_reduction_zeroes_only_filtered_axis(device):
+    distortion = AnisotropicResolutionReduction(
+        kx_radius_fraction=1.0,
+        ky_radius_fraction=0.3,
+    )
+    y = torch.ones((1, 2, 9, 11), device=device)
+
+    y_distorted = distortion.A(y)
+    mask = distortion._mask(y.shape, y.device)
+
+    assert torch.all(y_distorted == y * mask)
+    assert torch.all(mask[y.shape[-2] // 2, :] == 1)
+    assert torch.all(mask[0, :] == 0)
+
+
+def test_anisotropic_resolution_reduction_identity_at_full_cutoffs(device):
+    distortion = AnisotropicResolutionReduction(
+        kx_radius_fraction=1.0,
+        ky_radius_fraction=1.0,
+    )
+    y = torch.randn((1, 2, 32, 32), device=device)
 
     y_distorted = distortion.A(y)
 
@@ -204,6 +247,71 @@ def test_translation_motion_rejects_non_floating_tensor(device):
         distortion.A(y)
 
 
+def test_phase_encode_ghosting_zero_phase_and_unit_scale_is_identity(device):
+    distortion = PhaseEncodeGhostingDistortion(
+        line_period=2,
+        line_offset=1,
+        phase_error_radians=0.0,
+        corrupted_line_scale=1.0,
+    )
+    y = torch.randn((1, 2, 64, 64), device=device)
+
+    y_distorted = distortion.A(y)
+
+    assert torch.equal(y_distorted, y)
+
+
+def test_phase_encode_ghosting_modulates_selected_lines(device):
+    distortion = PhaseEncodeGhostingDistortion(
+        line_period=3,
+        line_offset=1,
+        phase_error_radians=torch.pi / 2,
+        corrupted_line_scale=0.75,
+        ghost_axis=-2,
+    )
+    y = torch.randn((2, 2, 3, 18, 20), device=device)
+
+    y_distorted = distortion.A(y)
+    y_complex = torch.view_as_complex(y.movedim(1, -1).contiguous())
+    y_distorted_complex = torch.view_as_complex(y_distorted.movedim(1, -1).contiguous())
+
+    line_factor = torch.polar(
+        torch.tensor(0.75, device=device),
+        torch.tensor(torch.pi / 2, device=device),
+    )
+    for line_index in range(y.shape[-2]):
+        if (line_index - distortion.line_offset) % distortion.line_period == 0:
+            expected = y_complex[:, :, line_index, :] * line_factor
+        else:
+            expected = y_complex[:, :, line_index, :]
+        actual = y_distorted_complex[:, :, line_index, :]
+        assert torch.allclose(actual, expected)
+
+
+def test_phase_encode_ghosting_creates_half_fov_replica_for_partial_alternating_phase(device):
+    distortion = PhaseEncodeGhostingDistortion(
+        line_period=2,
+        line_offset=1,
+        phase_error_radians=torch.pi / 2,
+        corrupted_line_scale=1.0,
+    )
+    image = torch.zeros((32, 32), dtype=torch.complex64, device=device)
+    image[5, 7] = 1.0
+
+    kspace = torch.fft.fftshift(torch.fft.fft2(image))
+    y = torch.view_as_real(kspace).movedim(-1, 0).unsqueeze(0).contiguous()
+
+    y_distorted = distortion.A(y)
+    ghosted_kspace = torch.view_as_complex(y_distorted[0].movedim(0, -1).contiguous())
+    ghosted_image = torch.fft.ifft2(torch.fft.ifftshift(ghosted_kspace))
+
+    peak_locations = torch.nonzero(torch.abs(ghosted_image) > 0.3)
+
+    assert peak_locations.shape[0] == 2
+    assert [5, 7] in peak_locations.tolist()
+    assert [21, 7] in peak_locations.tolist()
+
+
 def test_segmented_translation_motion_zero_shift_is_identity(device):
     distortion = SegmentedTranslationMotionDistortion(
         shift_x_pixels=(0.0, 0.0, 0.0),
@@ -275,15 +383,31 @@ def test_segmented_translation_motion_rejects_too_many_segments(device):
         distortion.A(y)
 
 
-def test_segmented_translation_motion_changes_segments_differently(device):
+def test_segmented_translation_motion_keeps_zero_motion_segment_and_modulates_shifted_segment(
+    device,
+):
     distortion = SegmentedTranslationMotionDistortion(
         shift_x_pixels=(0.0, 4.0),
         shift_y_pixels=(0.0, 2.0),
     )
-    y = torch.ones((1, 2, 64, 64), device=device)
+    y = torch.randn((1, 2, 64, 64), device=device)
 
     y_distorted = distortion.A(y)
-    first_half = y_distorted[..., :32, :]
-    second_half = y_distorted[..., 32:, :]
+    y_complex = torch.view_as_complex(y.movedim(1, -1).contiguous())
+    y_distorted_complex = torch.view_as_complex(y_distorted.movedim(1, -1).contiguous())
+    first_segment, second_segment = distortion._segment_slices(y.shape)
 
-    assert not torch.allclose(first_half, second_half)
+    first_segment_expected = y_complex[:, first_segment, :]
+    first_segment_actual = y_distorted_complex[:, first_segment, :]
+
+    ramp = distortion._phase_ramp(
+        y.shape,
+        y.device,
+        shift_x_pixels=distortion.shift_x_pixels[1],
+        shift_y_pixels=distortion.shift_y_pixels[1],
+    )
+    second_segment_expected = y_complex[:, second_segment, :] * ramp[second_segment, :]
+    second_segment_actual = y_distorted_complex[:, second_segment, :]
+
+    assert torch.allclose(first_segment_actual, first_segment_expected)
+    assert torch.allclose(second_segment_actual, second_segment_expected)
