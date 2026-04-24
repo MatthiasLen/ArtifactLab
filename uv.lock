@@ -301,7 +301,7 @@ wheels = [
 
 [[package]]
 name = "deepinv"
-version = "0.3.7"
+version = "0.4.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "einops" },
@@ -315,9 +315,9 @@ dependencies = [
     { name = "torchvision" },
     { name = "tqdm" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/87/a1/79dfe9b58c0c2ee05e5fdd5383f0cf6dbb1c55e0d28c2f21ab558a5b687c/deepinv-0.3.7.tar.gz", hash = "sha256:74630502320c0d22757a5bb1ea1c0035b47f77f86d553b2b48850fa388281b23", size = 677972, upload-time = "2025-12-15T12:14:51.887Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/a0/00/1a994fb2085dfb54bd5d09fa2184158b34c4370f1702fbfea322bc91c4a3/deepinv-0.4.0.tar.gz", hash = "sha256:03af6677669582365c4dd52ab093efbe88cfdd52d646cb3e4d2ed117eadcc99c", size = 795634, upload-time = "2026-03-11T14:40:39.536Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/63/97/21928458bcd04cf3e92d41998c0f64e98331644687006010187fb0a4cb1a/deepinv-0.3.7-py3-none-any.whl", hash = "sha256:26a4b292026d13958485947a47f9ad27edc55a90bbc02a24bdc9d887182650c6", size = 850394, upload-time = "2025-12-15T12:14:50.061Z" },
+    { url = "https://files.pythonhosted.org/packages/6c/d9/f480e46db06cffabd25cfeb4a5075f8ad919c31758510165bdcc7a064800/deepinv-0.4.0-py3-none-any.whl", hash = "sha256:7062c4e2b737106b928814e32116541976ae310716107c446a577a36e2b73588", size = 986947, upload-time = "2026-03-11T14:40:37.978Z" },
 ]
 
 [[package]]
@@ -834,6 +834,7 @@ dependencies = [
     { name = "deepinv" },
     { name = "fastmri" },
     { name = "h5py" },
+    { name = "matplotlib" },
     { name = "numpy" },
     { name = "pydicom" },
     { name = "pytest" },
@@ -842,9 +843,10 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
-    { name = "deepinv", specifier = "==0.3.7" },
+    { name = "deepinv", specifier = ">=0.3.8" },
     { name = "fastmri", specifier = "==0.3.0" },
     { name = "h5py", specifier = "==3.16.0" },
+    { name = "matplotlib", specifier = ">=3.9.0" },
     { name = "numpy", specifier = "==2.4.3" },
     { name = "pydicom", specifier = "==3.0.1" },
     { name = "pytest", specifier = ">=9.0.2" },
