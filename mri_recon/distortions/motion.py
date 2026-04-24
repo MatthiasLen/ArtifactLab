@@ -23,14 +23,11 @@ class TranslationMotionDistortion(BaseDistortion):
         self.shift_y_pixels = shift_y_pixels
 
     def _phase_ramp(self, shape: tuple[int, ...], device: torch.device) -> torch.Tensor:
-        ny, nx = shape[-2:]
         kx, ky = _frequency_grids(shape)
         kx = kx.to(device)
         ky = ky.to(device)
 
-        phase = (
-            -2.0 * torch.pi * (kx * (self.shift_x_pixels / nx) + ky * (self.shift_y_pixels / ny))
-        )
+        phase = -2.0 * torch.pi * (kx * self.shift_x_pixels + ky * self.shift_y_pixels)
         return torch.polar(torch.ones_like(phase), phase)
 
     def A(self, y: torch.Tensor) -> torch.Tensor:

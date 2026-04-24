@@ -174,3 +174,21 @@ def test_translation_motion_preserves_kspace_magnitude(device):
     y_distorted_complex = torch.view_as_complex(y_distorted.movedim(1, -1).contiguous())
 
     assert torch.allclose(torch.abs(y_distorted_complex), torch.abs(y_complex))
+
+
+def test_translation_motion_produces_requested_image_shift(device):
+    distortion = TranslationMotionDistortion(shift_x_pixels=8.0, shift_y_pixels=4.0)
+    image = torch.zeros((64, 64), dtype=torch.complex64, device=device)
+    image[20, 18] = 1.0
+
+    kspace = torch.fft.fftshift(torch.fft.fft2(image))
+    y = torch.view_as_real(kspace).movedim(-1, 0).unsqueeze(0).contiguous()
+
+    y_distorted = distortion.A(y)
+    kspace_distorted = torch.view_as_complex(y_distorted[0].movedim(0, -1).contiguous())
+    image_distorted = torch.fft.ifft2(torch.fft.ifftshift(kspace_distorted))
+    max_position = torch.nonzero(torch.abs(image_distorted) == torch.abs(image_distorted).max())[
+        0
+    ].tolist()
+
+    assert max_position == [24, 26]

@@ -135,7 +135,7 @@ def choose_distortion(name: str) -> BaseDistortion:
                 edge_gain=0.3,
             )
         case "Translation motion":
-            return TranslationMotionDistortion(shift_x_pixels=8.0, shift_y_pixels=4.0)
+            return TranslationMotionDistortion(shift_x_pixels=60, shift_y_pixels=10)
         case "Gaussian bias field":
             return GaussianKspaceBiasField(width_fraction=0.35, edge_gain=0.4)
         case "Gaussian noise":
