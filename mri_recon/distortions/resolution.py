@@ -4,30 +4,7 @@ from __future__ import annotations
 
 import torch
 
-from mri_recon.distortions.base import BaseDistortion
-
-
-def _frequency_grids(shape: tuple[int, ...]) -> tuple[torch.Tensor, torch.Tensor]:
-    """Return fftshifted Cartesian frequency grids in cycles/pixel.
-
-    The returned arrays have shape ``(ny, nx)`` and are aligned with a centered
-    k-space convention (DC at image center).
-    """
-    ny, nx = shape[-2:]
-    kx = torch.fft.fftshift(torch.fft.fftfreq(nx))
-    ky = torch.fft.fftshift(torch.fft.fftfreq(ny))
-    return torch.meshgrid(kx, ky, indexing="xy")
-
-
-def _radial_frequency(shape: tuple[int, ...]) -> torch.Tensor:
-    """Return radial frequency normalized to ``[0, 1]`` on the sampled grid."""
-
-    kx, ky = _frequency_grids(shape)
-    radius = torch.sqrt(kx * kx + ky * ky)
-    max_radius = float(torch.max(radius))
-    if max_radius <= 0.0:
-        return torch.zeros_like(radius)
-    return radius / max_radius
+from mri_recon.distortions.base import BaseDistortion, _radial_frequency
 
 
 class IsotropicResolutionReduction(BaseDistortion):
@@ -36,6 +13,9 @@ class IsotropicResolutionReduction(BaseDistortion):
     This applies
     ``M_out(kx, ky) = M(kx, ky) * 1[r(kx, ky) <= K]``
     where ``K`` is ``radius_fraction`` on the normalized radial grid.
+
+    :param float radius_fraction: Normalized cutoff radius in ``(0, 1]``.
+        Frequencies outside this radius are set to zero.
     """
 
     def __init__(self, radius_fraction: float = 0.6) -> None:
