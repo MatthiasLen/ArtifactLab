@@ -84,20 +84,21 @@ import torch
 import requests
 from pathlib import Path
 from tqdm import tqdm
-from .unet import Unet
+from ._fastmri_unet import Unet
 
 
 class FastMRISinglecoilUnetReconstructor(dinv.models.Reconstructor):
     """
-    Wrapper for pretrained singlecoil UNet from FastMRI challenge.
+    Wrapper for pretrained UNet from FastMRI singlecoil knee challenge.
+
+    Note: this model was trained for accelerated MRI reconstruction and may not have good performance on other degradations.
+
+    Note: this model discards complex information and only returns the magnitude image.
+
+    NOTE: this model was trained on both train+val splits of the challenge (i.e. trained on singlecoil_train, singlecoil_val).
+
+    See https://github.com/facebookresearch/fastMRI/tree/main/fastmri_examples for more details.
     """
-
-    MODEL_URL = (
-        "https://dl.fbaipublicfiles.com/fastMRI/trained_models/unet/"
-        "knee_sc_leaderboard_state_dict.pt"
-    )
-    STATE_DICT_FNAME = "knee_sc_leaderboard_state_dict.pt"
-
     def __init__(self, device: torch.device = None, state_dict_file: str = None) -> None:
         super().__init__()
 
@@ -114,13 +115,11 @@ class FastMRISinglecoilUnetReconstructor(dinv.models.Reconstructor):
         )
 
         if state_dict_file is None:
-            state_dict_file = self.STATE_DICT_FNAME
+            state_dict_file = "knee_sc_leaderboard_state_dict.pt"
             if not Path(state_dict_file).exists():
-                self._download_model(self.MODEL_URL, state_dict_file)
+                self._download_model("https://dl.fbaipublicfiles.com/fastMRI/trained_models/unet/knee_sc_leaderboard_state_dict.pt", state_dict_file)
 
-        self.model.load_state_dict(
-            torch.load(state_dict_file, map_location=device)
-        )
+        self.model.load_state_dict(torch.load(state_dict_file, map_location=device))
         self.model.eval()
         self.model.to(device)
 
@@ -135,26 +134,16 @@ class FastMRISinglecoilUnetReconstructor(dinv.models.Reconstructor):
                 fh.write(chunk)
                 bar.update(len(chunk))
 
-    def forward(self, y: torch.Tensor, physics: dinv.physics.Physics):
-        # y: (B, 2, H, W) real dtype, singlecoil k-space (real/imag)
+    def forward(self, y: torch.Tensor, physics: dinv.physics.Physics) -> torch.Tensor: # y: (B, 2, H, W) -> (B, 2, H, W)
         x_in = physics.A_adjoint(y)
-        # x_in: (B, 2, H, W) real/imag image domain
 
-        # Compute magnitude: (B, 1, H, W)
-        magnitude = torch.sqrt(x_in[:, 0:1] ** 2 + x_in[:, 1:2] ** 2)
+        x_in = dinv.utils.complex_abs(x_in, keepdim=True) # magnitude only
 
-        # Normalise per sample (matches FastMRI UnetDataTransform)
-        mean = magnitude.mean(dim=(-2, -1), keepdim=True)
-        std = magnitude.std(dim=(-2, -1), keepdim=True) + 1e-8
-        magnitude_norm = (magnitude - mean) / std
+        mu = x_in.mean(dim=(-2, -1), keepdim=True)
+        std = x_in.std(dim=(-2, -1), keepdim=True) + 1e-8
+        x_in = (x_in - mu) / std # following fastmri codebase's unet data transform
 
         with torch.no_grad():
-            out_norm = self.model(magnitude_norm)  # (B, 1, H, W)
+            out = self.model(x_in) * std + mu  # (B, 1, H, W)
 
-        # Unnormalise
-        out_magnitude = out_norm * std + mean  # (B, 1, H, W)
-
-        # Return as (B, 2, H, W) with zero imaginary channel
-        out = torch.cat([out_magnitude, torch.zeros_like(out_magnitude)], dim=1)
-
-        return out
+        return torch.cat([out, torch.zeros_like(out)], dim=1) # add blank imag channel
