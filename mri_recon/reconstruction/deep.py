@@ -58,6 +58,7 @@ class DeepImagePriorReconstructor(dinv.models.Reconstructor):
         self,
         img_size: tuple = (640, 368),
         n_iter: int = 100,
+        verbose: bool = True,
     ) -> None:
         super().__init__()
 
@@ -71,7 +72,7 @@ class DeepImagePriorReconstructor(dinv.models.Reconstructor):
             ),
             learning_rate=lr,
             iterations=n_iter,
-            verbose=True,
+            verbose=verbose,
             input_size=[channels] + in_size,
         )
 

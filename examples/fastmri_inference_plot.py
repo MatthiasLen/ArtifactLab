@@ -20,13 +20,13 @@ from mri_recon.reconstruction import *
 REPORT_DIR = Path("reports") / "fastmri_inference_plot"
 REPORT_DIR.mkdir(parents=True, exist_ok=True)
 ALGORITHMS = [
-    # "zero-filled",
-    # "conjugate-gradient",
-    # "ram",
+    "zero-filled",
+    "conjugate-gradient",
+    "ram",
     # "dip",
-    # "tv-pgd",
-    # "wavelet-fista",
-    # "tv-fista",
+    "tv-pgd",
+    "wavelet-fista",
+    "tv-fista",
     "tv-pdhg",
 ]
 DISTORTIONS = [
@@ -43,7 +43,10 @@ METRICS = [
 
 
 def choose_algorithm(
-    name: str, img_size: tuple = (640, 368), device: torch.device = "cpu"
+    name: str,
+    img_size: tuple = (640, 368),
+    device: torch.device = "cpu",
+    verbose: bool = False,
 ) -> dinv.models.Reconstructor:
     match name:
         case "zero-filled":
@@ -53,15 +56,15 @@ def choose_algorithm(
         case "ram":
             return RAMReconstructor(default_sigma=0.05, device=device)
         case "dip":
-            return DeepImagePriorReconstructor(img_size=img_size, n_iter=100)
+            return DeepImagePriorReconstructor(img_size=img_size, n_iter=100, verbose=verbose)
         case "tv-pgd":
-            return TVPGDReconstructor(n_iter=100)
+            return TVPGDReconstructor(n_iter=100, verbose=verbose)
         case "tv-fista":
-            return TVFISTAReconstructor(n_iter=200)
+            return TVFISTAReconstructor(n_iter=200, verbose=verbose)
         case "tv-pdhg":
-            return TVPDHGReconstructor(n_iter=60)
+            return TVPDHGReconstructor(n_iter=100, verbose=verbose)
         case "wavelet-fista":
-            return WaveletFISTAReconstructor(n_iter=100, device=device)
+            return WaveletFISTAReconstructor(n_iter=100, device=device, verbose=verbose)
         case _:
             raise ValueError(f"Unknown algorithm {name!r}")
 
@@ -91,6 +94,7 @@ def choose_metric(name: str) -> dinv.metric.Metric:
 
 
 if __name__ == "__main__":
+    # parsing command line arguments
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--source", type=str, help="Local FastMRI directory with raw k-space .h5 files."
@@ -104,8 +108,14 @@ if __name__ == "__main__":
         help="Reconstruction algorithm applied to undistorted and distorted k-space.",
     )
     parser.add_argument("--num_samples", type=int, default=1, help="How many samples to process.")
+    parser.add_argument(
+        "--verbose",
+        action="store_true",
+        help="Enable verbose output for reconstructors that support it.",
+    )
     args = parser.parse_args()
 
+    # set up device, dataset, metrics, and loop through algorithms, distortions, and samples
     device = dinv.utils.get_device()
     dataset = dinv.datasets.FastMRISliceDataset(args.source, slice_index="middle")
     metrics = [choose_metric(m) for m in METRICS]
@@ -116,12 +126,16 @@ if __name__ == "__main__":
                 if i >= args.num_samples:
                     continue
 
-                y = batch[
-                    1
-                ]  # batch is a tuple of (x, y) or (x, y, params) where x is GT (could be torch.nan), y is kspace, and params is a dict containing mask (if test set)
+                # batch is a tuple of (x, y) or (x, y, params) where x is GT (could be torch.nan), y is kspace, and params is a dict containing mask (if test set)
+                y = batch[1]
                 print(f"Evaluating algo {algo_name}, distortion {distortion_name}, sample {i}...")
 
-                algo = choose_algorithm(algo_name, img_size=y.shape[-2:], device=device).to(device)
+                algo = choose_algorithm(
+                    algo_name,
+                    img_size=y.shape[-2:],
+                    device=device,
+                    verbose=args.verbose,
+                ).to(device)
                 distortion = choose_distortion(distortion_name)
 
                 # TODO allow loading multicoil data
@@ -135,7 +149,11 @@ if __name__ == "__main__":
                 y = y.to(device)
                 y_distorted = physics.distortion(y)
 
+                # reference reconstructions (CG) for both clean and distorted k-space
                 x_clean = ConjugateGradientReconstructor()(y, physics_clean)
+                x_distorted = ConjugateGradientReconstructor()(y, physics)
+
+                # actual reconstruction with the algo being evaluated
                 x_uncorrected = algo(y_distorted, physics_clean)
                 x_corrected = algo(y_distorted, physics)
 
@@ -143,11 +161,13 @@ if __name__ == "__main__":
 
                 dinv.utils.plot(
                     {
-                        "Undistorted ksp, SENSE recon": x_clean,
-                        "Distorted ksp, uncorrected recon": x_uncorrected,
-                        "Distorted ksp, corrected recon": x_corrected,
+                        "Undistorted ksp, CG recon": x_clean,
+                        "Distorted ksp, CG recon": x_distorted,
+                        f"Distorted ksp, {algo_name} recon, uncorrected": x_uncorrected,
+                        f"Distorted ksp, {algo_name} recon, corrected": x_corrected,
                     },
                     subtitles=[
+                        "",
                         "",
                         "\n".join(
                             f"{m.__class__.__name__} {m(x_uncorrected, x_clean).item():.2f}"
