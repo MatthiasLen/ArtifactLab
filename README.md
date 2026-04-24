@@ -27,3 +27,5 @@ Run the hook suite manually across the repository:
 ```bash
 uv run pre-commit run --all-files
 ```
+
+GitHub Actions runs the same command in CI, so the local hook and CI stay aligned.
