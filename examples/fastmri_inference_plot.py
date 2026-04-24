@@ -11,6 +11,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import argparse
 from pathlib import Path
+import matplotlib.pyplot as plt
 import torch
 import deepinv as dinv
 
@@ -40,6 +41,54 @@ METRICS = [
     "SharpnessIndex",
     "BlurStrength",
 ]
+
+
+def _kspace_to_log_magnitude(kspace: torch.Tensor) -> torch.Tensor:
+    """Convert k-space tensor to log-magnitude image for visualization."""
+    if kspace.ndim == 4:
+        kspace = kspace[0]
+    if kspace.ndim != 3 or kspace.shape[0] != 2:
+        raise ValueError(
+            f"Expected k-space with shape (2, H, W) or (1, 2, H, W), got {tuple(kspace.shape)}"
+        )
+
+    kspace = kspace.detach().cpu()
+    kspace_complex = torch.view_as_complex(kspace.permute(1, 2, 0).contiguous())
+    magnitude = torch.log1p(torch.abs(kspace_complex))
+
+    lower = torch.quantile(magnitude, 0.05)
+    upper = torch.quantile(magnitude, 0.995)
+    if float(upper) > float(lower):
+        magnitude = magnitude.clamp(lower, upper)
+        magnitude = (magnitude - lower) / (upper - lower)
+    else:
+        mag_max = float(magnitude.max())
+        if mag_max > 0.0:
+            magnitude = magnitude / mag_max
+
+    return torch.sqrt(magnitude)
+
+
+def save_kspace_plot(
+    y_clean: torch.Tensor,
+    y_distorted: torch.Tensor,
+    save_fn: Path,
+    distortion_name: str,
+) -> None:
+    images = [
+        ("Original k-space", _kspace_to_log_magnitude(y_clean)),
+        ("Distorted k-space", _kspace_to_log_magnitude(y_distorted)),
+    ]
+
+    fig, axes = plt.subplots(1, 2, figsize=(8, 4), constrained_layout=True)
+    fig.suptitle(f"Distortion: {distortion_name}")
+    for ax, (title, image) in zip(axes, images, strict=True):
+        ax.imshow(image.numpy(), cmap="magma")
+        ax.set_title(title)
+        ax.axis("off")
+    fig.tight_layout()
+    fig.savefig(save_fn, dpi=200, bbox_inches="tight")
+    plt.close(fig)
 
 
 def choose_algorithm(
@@ -94,7 +143,6 @@ def choose_metric(name: str) -> dinv.metric.Metric:
 
 
 if __name__ == "__main__":
-    # parsing command line arguments
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--source", type=str, help="Local FastMRI directory with raw k-space .h5 files."
@@ -115,19 +163,50 @@ if __name__ == "__main__":
     )
     args = parser.parse_args()
 
-    # set up device, dataset, metrics, and loop through algorithms, distortions, and samples
+    # set up device, dataset, metrics
     device = dinv.utils.get_device()
     dataset = dinv.datasets.FastMRISliceDataset(args.source, slice_index="middle")
     metrics = [choose_metric(m) for m in METRICS]
 
-    for algo_name in ALGORITHMS if args.algorithm == "" else [args.algorithm]:
-        for distortion_name in DISTORTIONS if args.distortion == "" else [args.distortion]:
-            for i, batch in enumerate(iter(torch.utils.data.DataLoader(dataset))):
-                if i >= args.num_samples:
-                    continue
+    for i, batch in enumerate(iter(torch.utils.data.DataLoader(dataset))):
+        # exit loop if we have processed the specified number of samples
+        if i >= args.num_samples:
+            break
 
-                # batch is a tuple of (x, y) or (x, y, params) where x is GT (could be torch.nan), y is kspace, and params is a dict containing mask (if test set)
-                y = batch[1]
+        # batch is a tuple of (x, y) or (x, y, params) where x is GT (could be torch.nan),
+        # y is kspace, and params is a dict containing mask (if test set)
+        y = batch[1]
+
+        for distortion_name in DISTORTIONS if args.distortion == "" else [args.distortion]:
+            distortion = choose_distortion(distortion_name)
+
+            # create physics objects for both clean and distorted k-space
+            # the distortion is applied to the k-space measurements (not the image)
+            # TODO: allow loading multicoil data
+            physics_clean = DistortedKspaceMultiCoilMRI(
+                distortion=BaseDistortion(), img_size=(1, 2, *y.shape[-2:]), device=device
+            )
+            physics = DistortedKspaceMultiCoilMRI(
+                distortion=distortion, img_size=(1, 2, *y.shape[-2:]), device=device
+            )
+
+            y = y.to(device)
+            y_distorted = physics.distortion(y)
+
+            # generate reference reconstructions (CG) for both clean and distorted k-space
+            x_clean = ConjugateGradientReconstructor()(y, physics_clean)
+            x_distorted = ConjugateGradientReconstructor()(y, physics)
+
+            # plot and save the k-space magnitude for both clean and distorted k-space
+            save_kspace_plot(
+                y,
+                y_distorted,
+                REPORT_DIR / f"DISTORTION_{distortion_name}_sample_{i}.png",
+                distortion_name,
+            )
+
+            # loop through algorithms to evaluate on the distorted k-space, with and without correction for the distortion
+            for algo_name in ALGORITHMS if args.algorithm == "" else [args.algorithm]:
                 print(f"Evaluating algo {algo_name}, distortion {distortion_name}, sample {i}...")
 
                 algo = choose_algorithm(
@@ -136,22 +215,6 @@ if __name__ == "__main__":
                     device=device,
                     verbose=args.verbose,
                 ).to(device)
-                distortion = choose_distortion(distortion_name)
-
-                # TODO allow loading multicoil data
-                physics_clean = DistortedKspaceMultiCoilMRI(
-                    distortion=BaseDistortion(), img_size=(1, 2, *y.shape[-2:]), device=device
-                )
-                physics = DistortedKspaceMultiCoilMRI(
-                    distortion=distortion, img_size=(1, 2, *y.shape[-2:]), device=device
-                )
-
-                y = y.to(device)
-                y_distorted = physics.distortion(y)
-
-                # reference reconstructions (CG) for both clean and distorted k-space
-                x_clean = ConjugateGradientReconstructor()(y, physics_clean)
-                x_distorted = ConjugateGradientReconstructor()(y, physics)
 
                 # actual reconstruction with the algo being evaluated
                 x_uncorrected = algo(y_distorted, physics_clean)
@@ -181,6 +244,6 @@ if __name__ == "__main__":
                     show=False,
                     close=True,
                     suptitle=f"Algo {algo_name}, distortion {distortion_name}, Sample {i}",
-                    save_fn=REPORT_DIR / f"{algo_name}_{distortion_name}_sample_{i}.png",
+                    save_fn=REPORT_DIR / f"ALGO_{algo_name}_{distortion_name}_sample_{i}.png",
                     fontsize=3,
                 )
