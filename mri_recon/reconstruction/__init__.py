@@ -1,4 +1,4 @@
-from .deep import RAMReconstructor, DeepImagePriorReconstructor
+from .deep import RAMReconstructor, DeepImagePriorReconstructor, FastMRISinglecoilUnetReconstructor
 from .classic import (
     ZeroFilledReconstructor,
     ConjugateGradientReconstructor,

@@ -20,14 +20,15 @@ from mri_recon.reconstruction import *
 REPORT_DIR = Path("reports") / "fastmri_inference_plot"
 REPORT_DIR.mkdir(parents=True, exist_ok=True)
 ALGORITHMS = [
-    "zero-filled",
-    "conjugate-gradient",
-    "ram",
+    # "zero-filled",
+    # "conjugate-gradient",
+    # "ram",
     # "dip",
-    "tv-pgd",
-    "wavelet-fista",
-    "tv-fista",
-    "tv-pdhg",
+    # "tv-pgd",
+    # "wavelet-fista",
+    # "tv-fista",
+    # "tv-pdhg",
+    "unet"
 ]
 DISTORTIONS = [
     "Isotropic LP",
@@ -65,6 +66,8 @@ def choose_algorithm(
             return TVPDHGReconstructor(n_iter=100, verbose=verbose)
         case "wavelet-fista":
             return WaveletFISTAReconstructor(n_iter=100, device=device, verbose=verbose)
+        case "unet":
+            return FastMRISinglecoilUnetReconstructor(device=device)
         case _:
             raise ValueError(f"Unknown algorithm {name!r}")
 

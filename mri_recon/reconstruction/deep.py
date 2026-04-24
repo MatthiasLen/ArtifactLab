@@ -78,3 +78,83 @@ class DeepImagePriorReconstructor(dinv.models.Reconstructor):
 
     def forward(self, y, physics):
         return self.model(y, physics)
+
+
+import torch
+import requests
+from pathlib import Path
+from tqdm import tqdm
+from .unet import Unet
+
+
+class FastMRISinglecoilUnetReconstructor(dinv.models.Reconstructor):
+    """
+    Wrapper for pretrained singlecoil UNet from FastMRI challenge.
+    """
+
+    MODEL_URL = (
+        "https://dl.fbaipublicfiles.com/fastMRI/trained_models/unet/"
+        "knee_sc_leaderboard_state_dict.pt"
+    )
+    STATE_DICT_FNAME = "knee_sc_leaderboard_state_dict.pt"
+
+    def __init__(self, device: torch.device = None, state_dict_file: str = None) -> None:
+        super().__init__()
+
+        if device is None:
+            device = torch.device("cpu")
+        self.device = device
+
+        self.model = Unet(
+            in_chans=1,
+            out_chans=1,
+            chans=256,
+            num_pool_layers=4,
+            drop_prob=0.0,
+        )
+
+        if state_dict_file is None:
+            state_dict_file = self.STATE_DICT_FNAME
+            if not Path(state_dict_file).exists():
+                self._download_model(self.MODEL_URL, state_dict_file)
+
+        self.model.load_state_dict(
+            torch.load(state_dict_file, map_location=device)
+        )
+        self.model.eval()
+        self.model.to(device)
+
+    @staticmethod
+    def _download_model(url: str, fname: str):
+        response = requests.get(url, timeout=10, stream=True)
+        total = int(response.headers.get("content-length", 0))
+        with open(fname, "wb") as fh, tqdm(
+            desc="Downloading UNet weights", total=total, unit="iB", unit_scale=True
+        ) as bar:
+            for chunk in response.iter_content(1024 * 1024):
+                fh.write(chunk)
+                bar.update(len(chunk))
+
+    def forward(self, y: torch.Tensor, physics: dinv.physics.Physics):
+        # y: (B, 2, H, W) real dtype, singlecoil k-space (real/imag)
+        x_in = physics.A_adjoint(y)
+        # x_in: (B, 2, H, W) real/imag image domain
+
+        # Compute magnitude: (B, 1, H, W)
+        magnitude = torch.sqrt(x_in[:, 0:1] ** 2 + x_in[:, 1:2] ** 2)
+
+        # Normalise per sample (matches FastMRI UnetDataTransform)
+        mean = magnitude.mean(dim=(-2, -1), keepdim=True)
+        std = magnitude.std(dim=(-2, -1), keepdim=True) + 1e-8
+        magnitude_norm = (magnitude - mean) / std
+
+        with torch.no_grad():
+            out_norm = self.model(magnitude_norm)  # (B, 1, H, W)
+
+        # Unnormalise
+        out_magnitude = out_norm * std + mean  # (B, 1, H, W)
+
+        # Return as (B, 2, H, W) with zero imaginary channel
+        out = torch.cat([out_magnitude, torch.zeros_like(out_magnitude)], dim=1)
+
+        return out
