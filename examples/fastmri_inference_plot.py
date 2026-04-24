@@ -31,6 +31,7 @@ ALGORITHMS = [
     # "tv-pdhg",
 ]
 DISTORTIONS = [
+    "Segmented translation motion",
     "Translation motion",
     "Off-center anisotropic Gaussian bias field",
     "Gaussian bias field",
@@ -135,6 +136,11 @@ def choose_distortion(name: str) -> BaseDistortion:
             )
         case "Translation motion":
             return TranslationMotionDistortion(shift_x_pixels=60, shift_y_pixels=10)
+        case "Segmented translation motion":
+            return SegmentedTranslationMotionDistortion(
+                shift_x_pixels=(0.0, 20.0, 50.0, -50.0),
+                shift_y_pixels=(0.0, 10.0, -20.0, 20.0),
+            )
         case "Gaussian bias field":
             return GaussianKspaceBiasField(width_fraction=0.35, edge_gain=0.4)
         case "Gaussian noise":

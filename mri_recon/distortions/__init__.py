@@ -1,5 +1,5 @@
 from .base import BaseDistortion, DistortedKspaceMultiCoilMRI
 from .biasfield import GaussianKspaceBiasField, OffCenterAnisotropicGaussianKspaceBiasField
-from .motion import TranslationMotionDistortion
+from .motion import SegmentedTranslationMotionDistortion, TranslationMotionDistortion
 from .noise import GaussianNoiseDistortion
 from .resolution import IsotropicResolutionReduction

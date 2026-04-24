@@ -14,6 +14,7 @@ from mri_recon.distortions import (
     GaussianNoiseDistortion,
     IsotropicResolutionReduction,
     OffCenterAnisotropicGaussianKspaceBiasField,
+    SegmentedTranslationMotionDistortion,
     TranslationMotionDistortion,
 )
 
@@ -23,6 +24,7 @@ DISTORTIONS = [
     "Gaussian bias field",
     "Off-center anisotropic Gaussian bias field",
     "Translation motion",
+    "Segmented translation motion",
 ]
 
 
@@ -44,6 +46,11 @@ def choose_distortion(name):
             )
         case "Translation motion":
             return TranslationMotionDistortion(shift_x_pixels=8.0, shift_y_pixels=4.0)
+        case "Segmented translation motion":
+            return SegmentedTranslationMotionDistortion(
+                shift_x_pixels=(0.0, 2.0, 5.0, 5.0),
+                shift_y_pixels=(0.0, 1.0, 2.0, 2.0),
+            )
         case _:
             raise ValueError(f"Unknown distortion {name!r}")
 
@@ -171,3 +178,112 @@ def test_translation_motion_produces_requested_image_shift(device):
     ].tolist()
 
     assert max_position == [24, 26]
+
+
+def test_translation_motion_rejects_invalid_kspace_shape(device):
+    distortion = TranslationMotionDistortion(shift_x_pixels=1.0, shift_y_pixels=1.0)
+    y = torch.randn((1, 64, 64), device=device)
+
+    with pytest.raises(ValueError, match="Expected k-space with shape"):
+        distortion.A(y)
+
+
+def test_translation_motion_rejects_invalid_channel_dimension(device):
+    distortion = TranslationMotionDistortion(shift_x_pixels=1.0, shift_y_pixels=1.0)
+    y = torch.randn((1, 3, 64, 64), device=device)
+
+    with pytest.raises(ValueError, match="channel dimension of size 2"):
+        distortion.A(y)
+
+
+def test_translation_motion_rejects_non_floating_tensor(device):
+    distortion = TranslationMotionDistortion(shift_x_pixels=1.0, shift_y_pixels=1.0)
+    y = torch.zeros((1, 2, 64, 64), device=device, dtype=torch.int64)
+
+    with pytest.raises(TypeError, match="floating-point"):
+        distortion.A(y)
+
+
+def test_segmented_translation_motion_zero_shift_is_identity(device):
+    distortion = SegmentedTranslationMotionDistortion(
+        shift_x_pixels=(0.0, 0.0, 0.0),
+        shift_y_pixels=(0.0, 0.0, 0.0),
+    )
+    y = torch.randn((1, 2, 64, 64), device=device)
+
+    y_distorted = distortion.A(y)
+
+    assert torch.equal(y_distorted, y)
+
+
+def test_segmented_translation_motion_matches_phase_ramp_per_phase_encode_segment(device):
+    distortion = SegmentedTranslationMotionDistortion(
+        shift_x_pixels=(0.0, 1.5, -2.0),
+        shift_y_pixels=(0.0, 3.0, -1.0),
+        segment_axis=-2,
+    )
+    y = torch.randn((2, 2, 3, 18, 20), device=device)
+
+    y_distorted = distortion.A(y)
+    y_complex = torch.view_as_complex(y.movedim(1, -1).contiguous())
+    y_distorted_complex = torch.view_as_complex(y_distorted.movedim(1, -1).contiguous())
+
+    for segment_slice, shift_x, shift_y in zip(
+        distortion._segment_slices(y.shape),
+        distortion.shift_x_pixels,
+        distortion.shift_y_pixels,
+        strict=True,
+    ):
+        ramp = distortion._phase_ramp(y.shape, y.device, shift_x, shift_y)
+        expected = y_complex[:, :, segment_slice, :] * ramp[segment_slice, :]
+        actual = y_distorted_complex[:, :, segment_slice, :]
+        assert torch.allclose(actual, expected)
+
+
+def test_segmented_translation_motion_matches_phase_ramp_per_readout_segment(device):
+    distortion = SegmentedTranslationMotionDistortion(
+        shift_x_pixels=(0.0, 2.0),
+        shift_y_pixels=(0.0, 1.0),
+        segment_axis=-1,
+    )
+    y = torch.randn((1, 2, 16, 14), device=device)
+
+    y_distorted = distortion.A(y)
+    y_complex = torch.view_as_complex(y.movedim(1, -1).contiguous())
+    y_distorted_complex = torch.view_as_complex(y_distorted.movedim(1, -1).contiguous())
+
+    for segment_slice, shift_x, shift_y in zip(
+        distortion._segment_slices(y.shape),
+        distortion.shift_x_pixels,
+        distortion.shift_y_pixels,
+        strict=True,
+    ):
+        ramp = distortion._phase_ramp(y.shape, y.device, shift_x, shift_y)
+        expected = y_complex[:, :, segment_slice] * ramp[:, segment_slice]
+        actual = y_distorted_complex[:, :, segment_slice]
+        assert torch.allclose(actual, expected)
+
+
+def test_segmented_translation_motion_rejects_too_many_segments(device):
+    distortion = SegmentedTranslationMotionDistortion(
+        shift_x_pixels=(0.0, 1.0, 2.0, 3.0, 4.0),
+        shift_y_pixels=(0.0, 1.0, 2.0, 3.0, 4.0),
+    )
+    y = torch.randn((1, 2, 4, 64), device=device)
+
+    with pytest.raises(ValueError, match="non-empty segments"):
+        distortion.A(y)
+
+
+def test_segmented_translation_motion_changes_segments_differently(device):
+    distortion = SegmentedTranslationMotionDistortion(
+        shift_x_pixels=(0.0, 4.0),
+        shift_y_pixels=(0.0, 2.0),
+    )
+    y = torch.ones((1, 2, 64, 64), device=device)
+
+    y_distorted = distortion.A(y)
+    first_half = y_distorted[..., :32, :]
+    second_half = y_distorted[..., 32:, :]
+
+    assert not torch.allclose(first_half, second_half)
