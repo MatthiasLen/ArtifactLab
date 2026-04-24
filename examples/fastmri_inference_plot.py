@@ -17,13 +17,13 @@ from mri_recon.reconstruction import *
 REPORT_DIR = Path("reports") / "fastmri_inference_plot"
 REPORT_DIR.mkdir(parents=True, exist_ok=True)
 ALGORITHMS = [
-    # "zero-filled",
-    "conjugate-gradient",
-    "ram",
-    # "dip",
-    # "tv-pgd",
-    # "wavelet-fista",
-    # "tv-fista",
+    "zero-filled",
+    #"conjugate-gradient",
+    #"ram",
+    #"dip",
+    #"tv-pgd",
+    "wavelet-fista",
+    "tv-fista",
 ]
 DISTORTIONS = [
     "Isotropic LP",
@@ -94,7 +94,8 @@ if __name__ == "__main__":
         for distortion_name in DISTORTIONS if args.distortion == "" else [args.distortion]:
             for i, batch in enumerate(iter(torch.utils.data.DataLoader(dataset))):
 
-                if i > args.num_samples: continue
+                if i >= args.num_samples: continue
+                
                 y = batch[1] # batch is a tuple of (x, y) or (x, y, params) where x is GT (could be torch.nan), y is kspace, and params is a dict containing mask (if test set)
                 print(f"Evaluating algo {algo_name}, distortion {distortion_name}, sample {i}...")
 
@@ -104,12 +105,15 @@ if __name__ == "__main__":
                 # TODO allow loading multicoil data
                 physics_clean = DistortedKspaceMultiCoilMRI(distortion=BaseDistortion(), img_size=(1, 2, *y.shape[-2:]), device=device)
                 physics = DistortedKspaceMultiCoilMRI(distortion=distortion, img_size=(1, 2, *y.shape[-2:]), device=device)
+                
                 y = y.to(device)
                 y_distorted = physics.distortion(y)
                 
                 x_clean = ConjugateGradientReconstructor()(y, physics_clean)
                 x_uncorrected = algo(y_distorted, physics_clean)
                 x_corrected = algo(y_distorted, physics)
+
+                print("done!")
 
                 dinv.utils.plot(
                     {
