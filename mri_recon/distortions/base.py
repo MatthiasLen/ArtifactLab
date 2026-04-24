@@ -2,8 +2,32 @@ import torch
 import deepinv as dinv
 
 
+def _frequency_grids(shape: tuple[int, ...]) -> tuple[torch.Tensor, torch.Tensor]:
+    """Return fftshifted Cartesian frequency grids in cycles/pixel."""
+
+    ny, nx = shape[-2:]
+    kx = torch.fft.fftshift(torch.fft.fftfreq(nx))
+    ky = torch.fft.fftshift(torch.fft.fftfreq(ny))
+    return torch.meshgrid(kx, ky, indexing="xy")
+
+
+def _radial_frequency(shape: tuple[int, ...]) -> torch.Tensor:
+    """Return radial frequency normalized to ``[0, 1]`` on the sampled grid."""
+
+    kx, ky = _frequency_grids(shape)
+    radius = torch.sqrt(kx * kx + ky * ky)
+    max_radius = float(torch.max(radius))
+    if max_radius <= 0.0:
+        return torch.zeros_like(radius)
+    return radius / max_radius
+
+
 class BaseDistortion(dinv.physics.LinearPhysics):
-    """Base class for kspace distortions."""
+    """Base class for deterministic k-space distortions.
+
+    This class represents distortions applied directly to measured k-space. By
+    default, it acts as the identity operator.
+    """
 
     def A(self, y: torch.Tensor) -> torch.Tensor:
         """Distortion forward pass."""
@@ -11,6 +35,9 @@ class BaseDistortion(dinv.physics.LinearPhysics):
 
     def A_adjoint(self, y: torch.Tensor) -> torch.Tensor:
         """Apply the distortion's adjoint operation. If the distortion is elementwise, this will be equal to apply."""
+        # @Andrewwango is this assuming that the operator is self-adjoint if no override is provided?
+        # I think I read somewhere that deep inverse is approximating the adjoint is not given.
+        # Hence, shall we remove the default implementation of A_adjoint in the base class ?
         return self.A(y)
 
 
