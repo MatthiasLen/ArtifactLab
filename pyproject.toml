@@ -5,7 +5,7 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
-    "deepinv==0.3.7",
+    "deepinv>=0.3.8",
     "fastmri==0.3.0",
     "h5py==3.16.0",
     "matplotlib>=3.9.0",
