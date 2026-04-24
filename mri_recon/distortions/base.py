@@ -1,9 +1,10 @@
 import torch
 import deepinv as dinv
 
+
 class BaseDistortion(dinv.physics.LinearPhysics):
-    """Base class for kspace distortions.
-    """
+    """Base class for kspace distortions."""
+
     def A(self, y: torch.Tensor) -> torch.Tensor:
         """Distortion forward pass."""
         return y
@@ -12,10 +13,11 @@ class BaseDistortion(dinv.physics.LinearPhysics):
         """Apply the distortion's adjoint operation. If the distortion is elementwise, this will be equal to apply."""
         return self.A(y)
 
+
 class DistortedKspaceMultiCoilMRI(dinv.physics.MultiCoilMRI):
     r"""
     Multi-coil MRI with additional kspace distortion.
-    
+
     Multi-coil 2D or 3D MRI operator.
 
     The linear operator operates in 2D slices or 3D volumes and is defined as:
@@ -37,20 +39,21 @@ class DistortedKspaceMultiCoilMRI(dinv.physics.MultiCoilMRI):
     :param bool three_d: if ``True``, calculate Fourier transform in 3D for 3D data (i.e. data of shape (B,C,D,H,W) where D is depth).
     :param torch.device, str device: specify which device you want to use (i.e, cpu or gpu).
     """
+
     def __init__(self, distortion: BaseDistortion = None, *args, **kwargs):
         super().__init__(*args, **kwargs)
         if distortion is None:
             distortion = BaseDistortion()
         self.distortion = distortion
-    
+
     def A(self, x: torch.Tensor) -> torch.Tensor:
         y = super().A(x)
-        y = y.squeeze(2) # remove coil dim if singlecoil
+        y = y.squeeze(2)  # remove coil dim if singlecoil
         return self.distortion(y)
 
     def A_adjoint(self, y: torch.Tensor) -> torch.Tensor:
         if len(y.shape) == (5 if self.three_d else 4):
-            y = y.unsqueeze(2) # add coil dim if singlecoil
-            
+            y = y.unsqueeze(2)  # add coil dim if singlecoil
+
         y = self.distortion.A_adjoint(y)
         return super().A_adjoint(y)

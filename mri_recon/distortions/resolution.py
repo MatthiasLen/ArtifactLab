@@ -6,6 +6,7 @@ import torch
 
 from mri_recon.distortions.base import BaseDistortion
 
+
 def _frequency_grids(shape: tuple[int, ...]) -> tuple[torch.Tensor, torch.Tensor]:
     """Return fftshifted Cartesian frequency grids in cycles/pixel.
 
@@ -49,5 +50,8 @@ class IsotropicResolutionReduction(BaseDistortion):
         mask = mask.to(y.device)
         return y * mask
 
-    def A_adjoint(self, y: torch.Tensor,) -> torch.Tensor:
+    def A_adjoint(
+        self,
+        y: torch.Tensor,
+    ) -> torch.Tensor:
         return self(y)

@@ -12,3 +12,18 @@ On Windows and Linux, `uv sync` installs the CUDA 12.8 PyTorch wheels. On macOS,
 uv sync
 uv run python -c "import torch; print(torch.__version__, torch.cuda.is_available(), torch.version.cuda)"
 ```
+
+## Pre-commit
+
+Install the local tooling and register the git hook:
+
+```bash
+uv sync
+uv run pre-commit install
+```
+
+Run the hook suite manually across the repository:
+
+```bash
+uv run pre-commit run --all-files
+```

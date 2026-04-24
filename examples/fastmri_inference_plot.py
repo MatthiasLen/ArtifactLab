@@ -3,7 +3,10 @@
 Usage:
     python examples/fastmri_inference_plot.py --source ../ram-experiments/data/fastmri/knee/singlecoil_val
 """
-import os, sys
+
+import os
+import sys
+
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import argparse
@@ -38,7 +41,10 @@ METRICS = [
     "BlurStrength",
 ]
 
-def choose_algorithm(name: str, img_size: tuple = (640, 368), device: torch.device = "cpu") -> dinv.models.Reconstructor:
+
+def choose_algorithm(
+    name: str, img_size: tuple = (640, 368), device: torch.device = "cpu"
+) -> dinv.models.Reconstructor:
     match name:
         case "zero-filled":
             return ZeroFilledReconstructor()
@@ -59,12 +65,14 @@ def choose_algorithm(name: str, img_size: tuple = (640, 368), device: torch.devi
         case _:
             raise ValueError(f"Unknown algorithm {name!r}")
 
+
 def choose_distortion(name: str) -> BaseDistortion:
     match name:
         case "Isotropic LP":
             return IsotropicResolutionReduction(radius_fraction=0.1)
         case _:
             raise ValueError(f"Unknown distortion {name!r}")
+
 
 def choose_metric(name: str) -> dinv.metric.Metric:
     match name:
@@ -81,11 +89,20 @@ def choose_metric(name: str) -> dinv.metric.Metric:
         case "SharpnessIndex":
             return dinv.metric.SharpnessIndex(complex_abs=True)
 
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--source", type=str, help="Local FastMRI directory with raw k-space .h5 files.")
+    parser.add_argument(
+        "--source", type=str, help="Local FastMRI directory with raw k-space .h5 files."
+    )
     parser.add_argument("--distortion", type=str, default="", choices=DISTORTIONS)
-    parser.add_argument("--algorithm", type=str, default="", choices=ALGORITHMS, help="Reconstruction algorithm applied to undistorted and distorted k-space.")
+    parser.add_argument(
+        "--algorithm",
+        type=str,
+        default="",
+        choices=ALGORITHMS,
+        help="Reconstruction algorithm applied to undistorted and distorted k-space.",
+    )
     parser.add_argument("--num_samples", type=int, default=1, help="How many samples to process.")
     args = parser.parse_args()
 
@@ -96,22 +113,28 @@ if __name__ == "__main__":
     for algo_name in ALGORITHMS if args.algorithm == "" else [args.algorithm]:
         for distortion_name in DISTORTIONS if args.distortion == "" else [args.distortion]:
             for i, batch in enumerate(iter(torch.utils.data.DataLoader(dataset))):
+                if i >= args.num_samples:
+                    continue
 
-                if i >= args.num_samples: continue
-                
-                y = batch[1] # batch is a tuple of (x, y) or (x, y, params) where x is GT (could be torch.nan), y is kspace, and params is a dict containing mask (if test set)
+                y = batch[
+                    1
+                ]  # batch is a tuple of (x, y) or (x, y, params) where x is GT (could be torch.nan), y is kspace, and params is a dict containing mask (if test set)
                 print(f"Evaluating algo {algo_name}, distortion {distortion_name}, sample {i}...")
 
                 algo = choose_algorithm(algo_name, img_size=y.shape[-2:], device=device).to(device)
                 distortion = choose_distortion(distortion_name)
 
                 # TODO allow loading multicoil data
-                physics_clean = DistortedKspaceMultiCoilMRI(distortion=BaseDistortion(), img_size=(1, 2, *y.shape[-2:]), device=device)
-                physics = DistortedKspaceMultiCoilMRI(distortion=distortion, img_size=(1, 2, *y.shape[-2:]), device=device)
-                
+                physics_clean = DistortedKspaceMultiCoilMRI(
+                    distortion=BaseDistortion(), img_size=(1, 2, *y.shape[-2:]), device=device
+                )
+                physics = DistortedKspaceMultiCoilMRI(
+                    distortion=distortion, img_size=(1, 2, *y.shape[-2:]), device=device
+                )
+
                 y = y.to(device)
                 y_distorted = physics.distortion(y)
-                
+
                 x_clean = ConjugateGradientReconstructor()(y, physics_clean)
                 x_uncorrected = algo(y_distorted, physics_clean)
                 x_corrected = algo(y_distorted, physics)
