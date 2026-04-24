@@ -22,15 +22,17 @@ REPORT_DIR = Path("reports") / "fastmri_inference_plot"
 REPORT_DIR.mkdir(parents=True, exist_ok=True)
 ALGORITHMS = [
     "zero-filled",
-    "conjugate-gradient",
-    "ram",
+    # "conjugate-gradient",
+    # "ram",
     # "dip",
     "tv-pgd",
-    "wavelet-fista",
-    "tv-fista",
-    "tv-pdhg",
+    # "wavelet-fista",
+    # "tv-fista",
+    # "tv-pdhg",
 ]
 DISTORTIONS = [
+    "Complex Gaussian noise",
+    "Gaussian noise",
     "Isotropic LP",
 ]
 METRICS = [
@@ -86,7 +88,6 @@ def save_kspace_plot(
         ax.imshow(image.numpy(), cmap="magma")
         ax.set_title(title)
         ax.axis("off")
-    fig.tight_layout()
     fig.savefig(save_fn, dpi=200, bbox_inches="tight")
     plt.close(fig)
 
@@ -122,6 +123,10 @@ def choose_distortion(name: str) -> BaseDistortion:
     match name:
         case "Isotropic LP":
             return IsotropicResolutionReduction(radius_fraction=0.1)
+        case "Gaussian noise":
+            return GaussianNoiseDistortion(sigma=0.00001)
+        case "Complex Gaussian noise":
+            return ComplexGaussianNoiseDistortion(sigma=0.00001)
         case _:
             raise ValueError(f"Unknown distortion {name!r}")
 
@@ -191,7 +196,7 @@ if __name__ == "__main__":
             )
 
             y = y.to(device)
-            y_distorted = physics.distortion(y)
+            y_distorted = distortion.A(y)
 
             # generate reference reconstructions (CG) for both clean and distorted k-space
             x_clean = ConjugateGradientReconstructor()(y, physics_clean)

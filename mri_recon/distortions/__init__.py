@@ -1,2 +1,3 @@
 from .base import BaseDistortion, DistortedKspaceMultiCoilMRI
+from .noise import ComplexGaussianNoiseDistortion, GaussianNoiseDistortion
 from .resolution import IsotropicResolutionReduction

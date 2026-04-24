@@ -11,6 +11,9 @@ class BaseDistortion(dinv.physics.LinearPhysics):
 
     def A_adjoint(self, y: torch.Tensor) -> torch.Tensor:
         """Apply the distortion's adjoint operation. If the distortion is elementwise, this will be equal to apply."""
+        # @Andrewwango is this assuming that the operator is self-adjoint if no override is provided?
+        # I think I read somewhere that deep inverse is approximating the adjoint is not given.
+        # Hence, shall we remove the default implementation of A_adjoint in the base class ?
         return self.A(y)
 
 
