@@ -8,7 +8,13 @@ from mri_recon.distortions.base import BaseDistortion
 
 
 class GaussianNoiseDistortion(BaseDistortion):
-    """Additive Gaussian noise applied directly in k-space measurement space."""
+    """Add additive Gaussian noise to the two-channel k-space tensor.
+
+    Independent zero-mean Gaussian noise is added to each stored channel of the
+    real-valued k-space representation.
+
+    :param float sigma: Standard deviation of the additive noise.
+    """
 
     def __init__(self, sigma: float = 0.00001) -> None:
         super().__init__()
@@ -27,6 +33,9 @@ class ComplexGaussianNoiseDistortion(BaseDistortion):
 
     This adds independent zero-mean Gaussian noise to the real and imaginary
     components of the complex-valued k-space measurements.
+
+    :param float sigma: Standard deviation of the Gaussian noise added to each
+        of the real and imaginary components.
     """
 
     def __init__(self, sigma: float = 0.00001) -> None:

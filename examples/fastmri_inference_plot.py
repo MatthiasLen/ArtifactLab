@@ -31,6 +31,8 @@ ALGORITHMS = [
     # "tv-pdhg",
 ]
 DISTORTIONS = [
+    "Off-center anisotropic Gaussian bias field",
+    "Gaussian bias field",
     "Complex Gaussian noise",
     "Gaussian noise",
     "Isotropic LP",
@@ -123,6 +125,16 @@ def choose_distortion(name: str) -> BaseDistortion:
     match name:
         case "Isotropic LP":
             return IsotropicResolutionReduction(radius_fraction=0.1)
+        case "Off-center anisotropic Gaussian bias field":
+            return OffCenterAnisotropicGaussianKspaceBiasField(
+                width_x_fraction=0.2,
+                width_y_fraction=0.35,
+                center_x_fraction=0.15,
+                center_y_fraction=-0.1,
+                edge_gain=0.3,
+            )
+        case "Gaussian bias field":
+            return GaussianKspaceBiasField(width_fraction=0.35, edge_gain=0.4)
         case "Gaussian noise":
             return GaussianNoiseDistortion(sigma=0.00001)
         case "Complex Gaussian noise":

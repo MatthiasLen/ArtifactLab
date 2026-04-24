@@ -11,13 +11,17 @@ from mri_recon.distortions import (
     BaseDistortion,
     ComplexGaussianNoiseDistortion,
     DistortedKspaceMultiCoilMRI,
+    GaussianKspaceBiasField,
     GaussianNoiseDistortion,
     IsotropicResolutionReduction,
+    OffCenterAnisotropicGaussianKspaceBiasField,
 )
 
 DISTORTIONS = [
     "None",
     "Isotropic LP",
+    "Gaussian bias field",
+    "Off-center anisotropic Gaussian bias field",
 ]
 
 
@@ -27,6 +31,16 @@ def choose_distortion(name):
             return BaseDistortion()
         case "Isotropic LP":
             return IsotropicResolutionReduction(radius_fraction=0.6)
+        case "Gaussian bias field":
+            return GaussianKspaceBiasField(width_fraction=0.35, edge_gain=0.4)
+        case "Off-center anisotropic Gaussian bias field":
+            return OffCenterAnisotropicGaussianKspaceBiasField(
+                width_x_fraction=0.2,
+                width_y_fraction=0.35,
+                center_x_fraction=0.15,
+                center_y_fraction=-0.1,
+                edge_gain=0.3,
+            )
         case _:
             raise ValueError(f"Unknown distortion {name!r}")
 
@@ -51,7 +65,11 @@ def test_distortion_properties(name, img_size, device):
     x_dummy = torch.randn(1, 2, *img_size[-2:], device=device)
 
     assert distortion.adjointness_test(x_dummy) < 0.01
-    assert abs(distortion.compute_norm(x_dummy, squared=False) - 1) < 0.01
+    if name in {"Gaussian bias field", "Off-center anisotropic Gaussian bias field"}:
+        y_distorted = distortion.A(x_dummy)
+        assert torch.max(torch.abs(y_distorted)) <= torch.max(torch.abs(x_dummy)) + 1e-6
+    else:
+        assert abs(distortion.compute_norm(x_dummy, squared=False) - 1) < 0.01
 
     if len(img_size) == 4:  # singlecoil
         coil_maps = None
@@ -64,7 +82,17 @@ def test_distortion_properties(name, img_size, device):
     )
 
     assert physics.adjointness_test(x_dummy) < 0.01
-    assert abs(physics.compute_norm(x_dummy, squared=False) - 1) < 0.01
+    if name in {"Gaussian bias field", "Off-center anisotropic Gaussian bias field"}:
+        y_physics = physics.A(x_dummy)
+        y_clean = DistortedKspaceMultiCoilMRI(
+            distortion=BaseDistortion(),
+            img_size=(1, 2, *y.shape[-2:]),
+            coil_maps=coil_maps,
+            device=device,
+        ).A(x_dummy)
+        assert torch.max(torch.abs(y_physics)) <= torch.max(torch.abs(y_clean)) + 1e-6
+    else:
+        assert abs(physics.compute_norm(x_dummy, squared=False) - 1) < 0.01
 
 
 def test_gaussian_noise_distortion_preserves_shape_and_changes_values(device):
@@ -105,3 +133,20 @@ def test_complex_gaussian_noise_distortion_zero_sigma_is_identity(device):
     y_distorted = distortion.A(y)
 
     assert torch.equal(y_distorted, y)
+
+
+def test_centered_isotropic_bias_matches_anisotropic_special_case(device):
+    centered = GaussianKspaceBiasField(width_fraction=0.35, edge_gain=0.4)
+    anisotropic = OffCenterAnisotropicGaussianKspaceBiasField(
+        width_x_fraction=0.35,
+        width_y_fraction=0.35,
+        center_x_fraction=0.0,
+        center_y_fraction=0.0,
+        edge_gain=0.4,
+    )
+    y = torch.randn((1, 2, 64, 64), device=device)
+
+    y_centered = centered.A(y)
+    y_anisotropic = anisotropic.A(y)
+
+    assert torch.allclose(y_centered, y_anisotropic)
