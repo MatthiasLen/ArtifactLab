@@ -1,5 +1,7 @@
 # mri_recon
 
+[![CI](https://github.com/MatthiasLen/mri_recon/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/MatthiasLen/mri_recon/actions/workflows/ci.yml)
+
 MRI reconstruction playground for the MRI Metrics project.
 
 ## uv Environment Notes
@@ -28,4 +30,4 @@ Run the hook suite manually across the repository:
 uv run pre-commit run --all-files
 ```
 
-GitHub Actions runs the same command in CI, so the local hook and CI stay aligned.
+GitHub Actions runs the same `pre-commit` command in CI and also runs the test suite with `uv run pytest`.
