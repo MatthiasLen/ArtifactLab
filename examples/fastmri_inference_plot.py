@@ -34,7 +34,6 @@ DISTORTIONS = [
     "Translation motion",
     "Off-center anisotropic Gaussian bias field",
     "Gaussian bias field",
-    "Complex Gaussian noise",
     "Gaussian noise",
     "Isotropic LP",
 ]
@@ -140,8 +139,6 @@ def choose_distortion(name: str) -> BaseDistortion:
             return GaussianKspaceBiasField(width_fraction=0.35, edge_gain=0.4)
         case "Gaussian noise":
             return GaussianNoiseDistortion(sigma=0.00001)
-        case "Complex Gaussian noise":
-            return ComplexGaussianNoiseDistortion(sigma=0.00001)
         case _:
             raise ValueError(f"Unknown distortion {name!r}")
 

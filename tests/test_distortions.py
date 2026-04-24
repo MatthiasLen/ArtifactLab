@@ -9,7 +9,6 @@ import torch
 
 from mri_recon.distortions import (
     BaseDistortion,
-    ComplexGaussianNoiseDistortion,
     DistortedKspaceMultiCoilMRI,
     GaussianKspaceBiasField,
     GaussianNoiseDistortion,
@@ -112,26 +111,6 @@ def test_gaussian_noise_distortion_preserves_shape_and_changes_values(device):
 
 def test_gaussian_noise_distortion_zero_sigma_is_identity(device):
     distortion = GaussianNoiseDistortion(sigma=0.0)
-    y = torch.randn((1, 2, 64, 64), device=device)
-
-    y_distorted = distortion.A(y)
-
-    assert torch.equal(y_distorted, y)
-
-
-def test_complex_gaussian_noise_distortion_preserves_shape_and_changes_values(device):
-    distortion = ComplexGaussianNoiseDistortion(sigma=0.1)
-    y = torch.zeros((1, 2, 64, 64), device=device)
-
-    y_distorted = distortion.A(y)
-
-    assert y_distorted.shape == y.shape
-    assert y_distorted.dtype == y.dtype
-    assert not torch.equal(y_distorted, y)
-
-
-def test_complex_gaussian_noise_distortion_zero_sigma_is_identity(device):
-    distortion = ComplexGaussianNoiseDistortion(sigma=0.0)
     y = torch.randn((1, 2, 64, 64), device=device)
 
     y_distorted = distortion.A(y)
