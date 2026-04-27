@@ -37,6 +37,8 @@ DISTORTIONS = [
     "Off-center anisotropic Gaussian bias field",
     "Gaussian bias field",
     "Anisotropic LP",
+    "Hann taper LP",
+    "Kaiser taper LP",
     "Gaussian noise",
     "Isotropic LP",
 ]
@@ -137,6 +139,17 @@ def choose_distortion(name: str) -> BaseDistortion:
             return AnisotropicResolutionReduction(
                 kx_radius_fraction=1.0,
                 ky_radius_fraction=0.25,
+            )
+        case "Hann taper LP":
+            return HannTaperResolutionReduction(
+                radius_fraction=0.35,
+                transition_fraction=0.4,
+            )
+        case "Kaiser taper LP":
+            return KaiserTaperResolutionReduction(
+                radius_fraction=0.35,
+                transition_fraction=0.4,
+                beta=8.6,
             )
         case "Isotropic LP":
             return IsotropicResolutionReduction(radius_fraction=0.1)

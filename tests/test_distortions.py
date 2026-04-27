@@ -13,7 +13,9 @@ from mri_recon.distortions import (
     DistortedKspaceMultiCoilMRI,
     GaussianKspaceBiasField,
     GaussianNoiseDistortion,
+    HannTaperResolutionReduction,
     IsotropicResolutionReduction,
+    KaiserTaperResolutionReduction,
     OffCenterAnisotropicGaussianKspaceBiasField,
     PhaseEncodeGhostingDistortion,
     SegmentedTranslationMotionDistortion,
@@ -24,6 +26,8 @@ DISTORTIONS = [
     "None",
     "Isotropic LP",
     "Anisotropic LP",
+    "Hann taper LP",
+    "Kaiser taper LP",
     "Gaussian bias field",
     "Off-center anisotropic Gaussian bias field",
     "Phase-encode ghosting",
@@ -42,6 +46,17 @@ def choose_distortion(name):
             return AnisotropicResolutionReduction(
                 kx_radius_fraction=1.0,
                 ky_radius_fraction=0.35,
+            )
+        case "Hann taper LP":
+            return HannTaperResolutionReduction(
+                radius_fraction=0.6,
+                transition_fraction=0.25,
+            )
+        case "Kaiser taper LP":
+            return KaiserTaperResolutionReduction(
+                radius_fraction=0.6,
+                transition_fraction=0.25,
+                beta=8.6,
             )
         case "Gaussian bias field":
             return GaussianKspaceBiasField(width_fraction=0.35, edge_gain=0.4)
@@ -166,6 +181,53 @@ def test_anisotropic_resolution_reduction_identity_at_full_cutoffs(device):
     y_distorted = distortion.A(y)
 
     assert torch.equal(y_distorted, y)
+
+
+def test_hann_taper_resolution_reduction_has_smooth_transition(device):
+    distortion = HannTaperResolutionReduction(
+        radius_fraction=0.8,
+        transition_fraction=0.5,
+    )
+
+    mask = distortion._mask((1, 2, 33, 33), torch.device(device))
+
+    assert mask[16, 16] == pytest.approx(1.0)
+    assert mask[0, 0] == pytest.approx(0.0)
+    assert torch.any((mask > 0.0) & (mask < 1.0))
+
+
+def test_hann_taper_resolution_reduction_zero_transition_matches_hard_cutoff(device):
+    hard = IsotropicResolutionReduction(radius_fraction=0.6)
+    smooth = HannTaperResolutionReduction(radius_fraction=0.6, transition_fraction=0.0)
+    y = torch.randn((1, 2, 64, 64), device=device)
+
+    assert torch.equal(smooth.A(y), hard.A(y))
+
+
+def test_kaiser_taper_resolution_reduction_has_smooth_transition(device):
+    distortion = KaiserTaperResolutionReduction(
+        radius_fraction=0.8,
+        transition_fraction=0.5,
+        beta=8.6,
+    )
+
+    mask = distortion._mask((1, 2, 33, 33), torch.device(device))
+
+    assert mask[16, 16] == pytest.approx(1.0)
+    assert mask[0, 0] == pytest.approx(0.0)
+    assert torch.any((mask > 0.0) & (mask < 1.0))
+
+
+def test_kaiser_taper_resolution_reduction_zero_transition_matches_hard_cutoff(device):
+    hard = IsotropicResolutionReduction(radius_fraction=0.6)
+    smooth = KaiserTaperResolutionReduction(
+        radius_fraction=0.6,
+        transition_fraction=0.0,
+        beta=8.6,
+    )
+    y = torch.randn((1, 2, 64, 64), device=device)
+
+    assert torch.equal(smooth.A(y), hard.A(y))
 
 
 def test_centered_isotropic_bias_matches_anisotropic_special_case(device):

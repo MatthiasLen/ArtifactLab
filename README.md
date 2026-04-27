@@ -24,6 +24,8 @@ MRI reconstruction playground for the MRI Metrics project.
 | `BaseDistortion` | `None` | Identity | Leaves the k-space unchanged and serves as the no-distortion baseline. |
 | `IsotropicResolutionReduction` | `Isotropic LP` | Resolution loss | Applies a circular low-pass mask in k-space to remove high frequencies isotropically. |
 | `AnisotropicResolutionReduction` | `Anisotropic LP` | Resolution loss | Applies an axis-aligned rectangular low-pass mask with separate cutoffs along `kx` and `ky`. |
+| `HannTaperResolutionReduction` | `Hann taper LP` | Resolution loss | Applies a circular low-pass mask with a raised-cosine transition band to soften the cutoff. |
+| `KaiserTaperResolutionReduction` | `Kaiser taper LP` | Resolution loss | Applies a circular low-pass mask with a Kaiser transition band for adjustable cutoff smoothness. |
 | `GaussianKspaceBiasField` | `Gaussian bias field` | Intensity non-uniformity | Applies a centered smooth multiplicative Gaussian gain field in k-space. |
 | `OffCenterAnisotropicGaussianKspaceBiasField` | `Off-center anisotropic Gaussian bias field` | Intensity non-uniformity | Applies an off-center anisotropic Gaussian gain field in k-space with separate widths along `kx` and `ky`. |
 | `GaussianNoiseDistortion` | `Gaussian noise` | Noise | Adds independent zero-mean Gaussian noise to the stored real and imaginary k-space channels. |

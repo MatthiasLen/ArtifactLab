@@ -11,6 +11,60 @@ from mri_recon.distortions.base import (
 )
 
 
+def _validate_radius_fraction(radius_fraction: float) -> None:
+    if not 0.0 < radius_fraction <= 1.0:
+        raise ValueError("radius_fraction must be in (0, 1]")
+
+
+def _validate_transition_fraction(transition_fraction: float) -> None:
+    if not 0.0 <= transition_fraction <= 1.0:
+        raise ValueError("transition_fraction must be in [0, 1]")
+
+
+def _smooth_radial_low_pass_mask(
+    shape: tuple[int, ...],
+    device: torch.device,
+    radius_fraction: float,
+    transition_fraction: float,
+    profile: str,
+    beta: float | None = None,
+) -> torch.Tensor:
+    radius = _radial_frequency(shape).to(device)
+    transition_start = radius_fraction * (1.0 - transition_fraction)
+
+    if transition_fraction == 0.0:
+        return (radius <= radius_fraction).to(dtype=radius.dtype)
+
+    mask = torch.zeros_like(radius)
+    passband = radius <= transition_start
+    transition_band = (radius > transition_start) & (radius <= radius_fraction)
+
+    mask[passband] = 1.0
+    if not torch.any(transition_band):
+        return mask
+
+    scaled_radius = (radius[transition_band] - transition_start) / (
+        radius_fraction - transition_start
+    )
+
+    if profile == "hann":
+        mask[transition_band] = 0.5 * (1.0 + torch.cos(torch.pi * scaled_radius))
+        return mask
+
+    if profile == "kaiser":
+        if beta is None or beta <= 0.0:
+            raise ValueError("beta must be positive for a Kaiser taper")
+
+        beta_tensor = radius.new_tensor(beta)
+        denominator = torch.special.i0(beta_tensor)
+        edge_value = 1.0 / denominator
+        raw = torch.special.i0(beta_tensor * torch.sqrt(1.0 - scaled_radius.square())) / denominator
+        mask[transition_band] = (raw - edge_value) / (1.0 - edge_value)
+        return mask.clamp(0.0, 1.0)
+
+    raise ValueError(f"Unknown taper profile {profile!r}")
+
+
 class IsotropicResolutionReduction(BaseDistortion):
     """Low-pass truncation with a circular mask.
 
@@ -24,8 +78,7 @@ class IsotropicResolutionReduction(BaseDistortion):
 
     def __init__(self, radius_fraction: float = 0.6) -> None:
         super().__init__()
-        if not 0.0 < radius_fraction <= 1.0:
-            raise ValueError("radius_fraction must be in (0, 1]")
+        _validate_radius_fraction(radius_fraction)
         self.radius_fraction = radius_fraction
 
     def A(self, y: torch.Tensor) -> torch.Tensor:
@@ -61,10 +114,8 @@ class AnisotropicResolutionReduction(BaseDistortion):
         ky_radius_fraction: float = 0.4,
     ) -> None:
         super().__init__()
-        if not 0.0 < kx_radius_fraction <= 1.0:
-            raise ValueError("kx_radius_fraction must be in (0, 1]")
-        if not 0.0 < ky_radius_fraction <= 1.0:
-            raise ValueError("ky_radius_fraction must be in (0, 1]")
+        _validate_radius_fraction(kx_radius_fraction)
+        _validate_radius_fraction(ky_radius_fraction)
 
         self.kx_radius_fraction = kx_radius_fraction
         self.ky_radius_fraction = ky_radius_fraction
@@ -78,6 +129,92 @@ class AnisotropicResolutionReduction(BaseDistortion):
             normalized_ky <= self.ky_radius_fraction
         )
         return mask.to(device)
+
+    def A(self, y: torch.Tensor) -> torch.Tensor:
+        return y * self._mask(y.shape, y.device)
+
+    def A_adjoint(self, y: torch.Tensor) -> torch.Tensor:
+        return self.A(y)
+
+
+class HannTaperResolutionReduction(BaseDistortion):
+    """Radial low-pass reduction with a Hann transition band.
+
+    The mask equals ``1`` in the low-frequency passband, tapers smoothly to
+    ``0`` with a raised-cosine profile near the cutoff, and is exactly ``0``
+    beyond ``radius_fraction``.
+
+    :param float radius_fraction: Normalized cutoff radius in ``(0, 1]``.
+    :param float transition_fraction: Fraction of the cutoff radius occupied by
+        the smooth transition. ``0`` recovers the hard cutoff.
+    """
+
+    def __init__(
+        self,
+        radius_fraction: float = 0.6,
+        transition_fraction: float = 0.25,
+    ) -> None:
+        super().__init__()
+        _validate_radius_fraction(radius_fraction)
+        _validate_transition_fraction(transition_fraction)
+        self.radius_fraction = radius_fraction
+        self.transition_fraction = transition_fraction
+
+    def _mask(self, shape: tuple[int, ...], device: torch.device) -> torch.Tensor:
+        return _smooth_radial_low_pass_mask(
+            shape=shape,
+            device=device,
+            radius_fraction=self.radius_fraction,
+            transition_fraction=self.transition_fraction,
+            profile="hann",
+        )
+
+    def A(self, y: torch.Tensor) -> torch.Tensor:
+        return y * self._mask(y.shape, y.device)
+
+    def A_adjoint(self, y: torch.Tensor) -> torch.Tensor:
+        return self.A(y)
+
+
+class KaiserTaperResolutionReduction(BaseDistortion):
+    """Radial low-pass reduction with a Kaiser transition band.
+
+    The mask equals ``1`` in the low-frequency passband, tapers smoothly to
+    ``0`` with a Kaiser-profile transition near the cutoff, and is exactly ``0``
+    beyond ``radius_fraction``.
+
+    :param float radius_fraction: Normalized cutoff radius in ``(0, 1]``.
+    :param float transition_fraction: Fraction of the cutoff radius occupied by
+        the smooth transition. ``0`` recovers the hard cutoff.
+    :param float beta: Positive Kaiser shape parameter. Larger values create a
+        steeper transition inside the taper band.
+    """
+
+    def __init__(
+        self,
+        radius_fraction: float = 0.6,
+        transition_fraction: float = 0.25,
+        beta: float = 8.6,
+    ) -> None:
+        super().__init__()
+        _validate_radius_fraction(radius_fraction)
+        _validate_transition_fraction(transition_fraction)
+        if beta <= 0.0:
+            raise ValueError("beta must be positive")
+
+        self.radius_fraction = radius_fraction
+        self.transition_fraction = transition_fraction
+        self.beta = beta
+
+    def _mask(self, shape: tuple[int, ...], device: torch.device) -> torch.Tensor:
+        return _smooth_radial_low_pass_mask(
+            shape=shape,
+            device=device,
+            radius_fraction=self.radius_fraction,
+            transition_fraction=self.transition_fraction,
+            profile="kaiser",
+            beta=self.beta,
+        )
 
     def A(self, y: torch.Tensor) -> torch.Tensor:
         return y * self._mask(y.shape, y.device)
