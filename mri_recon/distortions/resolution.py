@@ -11,16 +11,6 @@ from mri_recon.distortions.base import (
 )
 
 
-def _validate_radius_fraction(radius_fraction: float) -> None:
-    if not 0.0 < radius_fraction <= 1.0:
-        raise ValueError("radius_fraction must be in (0, 1]")
-
-
-def _validate_transition_fraction(transition_fraction: float) -> None:
-    if not 0.0 <= transition_fraction <= 1.0:
-        raise ValueError("transition_fraction must be in [0, 1]")
-
-
 def _smooth_radial_low_pass_mask(
     shape: tuple[int, ...],
     device: torch.device,
@@ -29,6 +19,23 @@ def _smooth_radial_low_pass_mask(
     profile: str,
     beta: float | None = None,
 ) -> torch.Tensor:
+    """Build a smooth circular low-pass mask on the normalized radial grid.
+
+    The mask is one inside the passband, zero outside the cutoff, and follows
+    the requested taper profile inside the transition band.
+
+    :param tuple[int, ...] shape: Input k-space tensor shape.
+    :param torch.device device: Device on which to allocate the mask.
+    :param float radius_fraction: Normalized radial cutoff in ``(0, 1]``.
+    :param float transition_fraction: Fraction of the cutoff radius reserved
+        for the taper band in ``[0, 1]``.
+    :param str profile: Taper profile name. Supported values are ``"hann"``
+        and ``"kaiser"``.
+    :param float | None beta: Kaiser window shape parameter. Required when
+        ``profile`` is ``"kaiser"``.
+    :returns: Real-valued radial mask with entries in ``[0, 1]``.
+    :rtype: torch.Tensor
+    """
     radius = _radial_frequency(shape).to(device)
     transition_start = radius_fraction * (1.0 - transition_fraction)
 
@@ -56,9 +63,9 @@ def _smooth_radial_low_pass_mask(
             raise ValueError("beta must be positive for a Kaiser taper")
 
         beta_tensor = radius.new_tensor(beta)
-        denominator = torch.special.i0(beta_tensor)
+        denominator = torch.i0(beta_tensor)
         edge_value = 1.0 / denominator
-        raw = torch.special.i0(beta_tensor * torch.sqrt(1.0 - scaled_radius.square())) / denominator
+        raw = torch.i0(beta_tensor * torch.sqrt(1.0 - scaled_radius.square())) / denominator
         mask[transition_band] = (raw - edge_value) / (1.0 - edge_value)
         return mask.clamp(0.0, 1.0)
 
@@ -78,7 +85,8 @@ class IsotropicResolutionReduction(BaseDistortion):
 
     def __init__(self, radius_fraction: float = 0.6) -> None:
         super().__init__()
-        _validate_radius_fraction(radius_fraction)
+        if not 0.0 < radius_fraction <= 1.0:
+            raise ValueError("radius_fraction must be in (0, 1]")
         self.radius_fraction = radius_fraction
 
     def A(self, y: torch.Tensor) -> torch.Tensor:
@@ -114,8 +122,10 @@ class AnisotropicResolutionReduction(BaseDistortion):
         ky_radius_fraction: float = 0.4,
     ) -> None:
         super().__init__()
-        _validate_radius_fraction(kx_radius_fraction)
-        _validate_radius_fraction(ky_radius_fraction)
+        if not 0.0 < kx_radius_fraction <= 1.0:
+            raise ValueError("kx_radius_fraction must be in (0, 1]")
+        if not 0.0 < ky_radius_fraction <= 1.0:
+            raise ValueError("ky_radius_fraction must be in (0, 1]")
 
         self.kx_radius_fraction = kx_radius_fraction
         self.ky_radius_fraction = ky_radius_fraction
@@ -145,8 +155,9 @@ class HannTaperResolutionReduction(BaseDistortion):
     beyond ``radius_fraction``.
 
     :param float radius_fraction: Normalized cutoff radius in ``(0, 1]``.
+        Frequencies outside this radius are fully suppressed.
     :param float transition_fraction: Fraction of the cutoff radius occupied by
-        the smooth transition. ``0`` recovers the hard cutoff.
+        the smooth transition in ``[0, 1]``. ``0`` recovers the hard cutoff.
     """
 
     def __init__(
@@ -155,8 +166,10 @@ class HannTaperResolutionReduction(BaseDistortion):
         transition_fraction: float = 0.25,
     ) -> None:
         super().__init__()
-        _validate_radius_fraction(radius_fraction)
-        _validate_transition_fraction(transition_fraction)
+        if not 0.0 < radius_fraction <= 1.0:
+            raise ValueError("radius_fraction must be in (0, 1]")
+        if not 0.0 <= transition_fraction <= 1.0:
+            raise ValueError("transition_fraction must be in [0, 1]")
         self.radius_fraction = radius_fraction
         self.transition_fraction = transition_fraction
 
@@ -180,12 +193,13 @@ class KaiserTaperResolutionReduction(BaseDistortion):
     """Radial low-pass reduction with a Kaiser transition band.
 
     The mask equals ``1`` in the low-frequency passband, tapers smoothly to
-    ``0`` with a Kaiser-profile transition near the cutoff, and is exactly ``0``
-    beyond ``radius_fraction``.
+    ``0`` with a Kaiser-profile transition near the cutoff, and is exactly
+    ``0`` beyond ``radius_fraction``.
 
     :param float radius_fraction: Normalized cutoff radius in ``(0, 1]``.
+        Frequencies outside this radius are fully suppressed.
     :param float transition_fraction: Fraction of the cutoff radius occupied by
-        the smooth transition. ``0`` recovers the hard cutoff.
+        the smooth transition in ``[0, 1]``. ``0`` recovers the hard cutoff.
     :param float beta: Positive Kaiser shape parameter. Larger values create a
         steeper transition inside the taper band.
     """
@@ -197,8 +211,10 @@ class KaiserTaperResolutionReduction(BaseDistortion):
         beta: float = 8.6,
     ) -> None:
         super().__init__()
-        _validate_radius_fraction(radius_fraction)
-        _validate_transition_fraction(transition_fraction)
+        if not 0.0 < radius_fraction <= 1.0:
+            raise ValueError("radius_fraction must be in (0, 1]")
+        if not 0.0 <= transition_fraction <= 1.0:
+            raise ValueError("transition_fraction must be in [0, 1]")
         if beta <= 0.0:
             raise ValueError("beta must be positive")
 
