@@ -58,3 +58,11 @@ uv run pre-commit run --all-files
 ```
 
 GitHub Actions runs the same `pre-commit` command in CI and also runs the test suite with `uv run pytest`.
+
+## Contributing
+
+1. **Pre-commit hooks** – install and run them before pushing (see [Pre-commit](#pre-commit) above). CI enforces the same checks.
+2. **Docstrings** – add a NumPy-style docstring to every public function, method, and class. Include a one-line summary, `Parameters`, and `Returns` sections where applicable.
+3. **README updates** – if you add a new reconstructor or distortion, append a row to the corresponding table. Keep descriptions concise (one sentence).
+4. **Tests** – add or update tests under `tests/` for any new behaviour. Run the full suite with `uv run pytest` before opening a PR.
+5. **Branching** – open a feature branch, keep commits focused, and open a pull request against `main`.
