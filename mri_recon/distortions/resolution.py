@@ -154,6 +154,8 @@ class HannTaperResolutionReduction(BaseDistortion):
     ``0`` with a raised-cosine profile near the cutoff, and is exactly ``0``
     beyond ``radius_fraction``.
 
+    See https://en.wikipedia.org/wiki/Hann_function for details on the Hann window.
+
     :param float radius_fraction: Normalized cutoff radius in ``(0, 1]``.
         Frequencies outside this radius are fully suppressed.
     :param float transition_fraction: Fraction of the cutoff radius occupied by
@@ -195,6 +197,8 @@ class KaiserTaperResolutionReduction(BaseDistortion):
     The mask equals ``1`` in the low-frequency passband, tapers smoothly to
     ``0`` with a Kaiser-profile transition near the cutoff, and is exactly
     ``0`` beyond ``radius_fraction``.
+
+    See https://en.wikipedia.org/wiki/Kaiser_window for details on the Kaiser window.
 
     :param float radius_fraction: Normalized cutoff radius in ``(0, 1]``.
         Frequencies outside this radius are fully suppressed.
