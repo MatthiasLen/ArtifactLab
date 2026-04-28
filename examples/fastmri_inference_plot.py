@@ -234,8 +234,9 @@ if __name__ == "__main__":
             y_distorted = distortion.A(y)
 
             # generate reference reconstructions (CG) for both clean and distorted k-space
+            # without correction for the distortion, i.e. using physics_clean in both cases
             x_clean = ConjugateGradientReconstructor()(y, physics_clean)
-            x_distorted = ConjugateGradientReconstructor()(y, physics)
+            x_distorted = ConjugateGradientReconstructor()(y_distorted, physics_clean)
 
             # plot and save the k-space magnitude for both clean and distorted k-space
             save_kspace_plot(

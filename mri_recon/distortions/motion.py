@@ -55,12 +55,12 @@ class TranslationMotionDistortion(BaseDistortion):
 
 
 class RotationalMotionDistortion(BaseDistortion):
-    """Rigid in-plane rotation applied by resampling the image-domain object.
+    """Rigid in-plane rotation applied by resampling centered Cartesian k-space.
 
-    The measured k-space is converted to image space, rotated around the image
-    center by ``angle_radians``, and transformed back to k-space. Unlike
-    translation, arbitrary rotation is not an elementwise phase ramp in
-    Cartesian k-space, so this operator uses interpolation.
+    A rigid image-space rotation by ``angle_radians`` corresponds to the same
+    coordinate rotation in the centered Fourier domain. On the discrete sampled
+    grid this becomes an interpolation problem over the stored real and
+    imaginary k-space channels.
 
     :param float angle_radians: In-plane rotation angle in radians.
     """
@@ -69,33 +69,36 @@ class RotationalMotionDistortion(BaseDistortion):
         super().__init__()
         self.angle_radians = float(angle_radians)
 
-    def _reshape_complex_image(self, image: torch.Tensor) -> tuple[torch.Tensor, tuple[int, ...]]:
-        """Flatten leading axes and expose complex values as two channels."""
+    def _reshape_kspace_channels(self, y: torch.Tensor) -> tuple[torch.Tensor, tuple[int, ...]]:
+        """Flatten batch and optional coil axes for channel-wise resampling."""
 
-        leading_shape = image.shape[:-2]
-        image_flat = image.reshape(-1, *image.shape[-2:])
-        image_channels = torch.view_as_real(image_flat).movedim(-1, 1).contiguous()
-        return image_channels, leading_shape
+        if y.ndim == 4:
+            return y, ()
 
-    def _restore_complex_image(
-        self, image_channels: torch.Tensor, leading_shape: tuple[int, ...]
+        leading_shape = (y.shape[0], y.shape[2])
+        y_flat = y.permute(0, 2, 1, 3, 4).reshape(-1, 2, y.shape[-2], y.shape[-1])
+        return y_flat, leading_shape
+
+    def _restore_kspace_channels(
+        self, y_flat: torch.Tensor, leading_shape: tuple[int, ...]
     ) -> torch.Tensor:
-        """Restore flattened image channels to the original complex shape."""
+        """Restore flattened batch and coil axes after resampling."""
 
-        image_flat = torch.view_as_complex(image_channels.movedim(1, -1).contiguous())
-        return image_flat.reshape(*leading_shape, *image_flat.shape[-2:])
+        if not leading_shape:
+            return y_flat
+
+        batch_size, coil_count = leading_shape
+        return y_flat.reshape(batch_size, coil_count, 2, *y_flat.shape[-2:]).permute(0, 2, 1, 3, 4)
 
     def _rotation_grid(
         self, shape: tuple[int, ...], device: torch.device, angle_radians: float
     ) -> torch.Tensor:
-        """Build a sampling grid for an image-centered in-plane rotation."""
+        """Build a sampling grid for a centered in-plane coordinate rotation."""
 
-        batch_size = 1
-        for axis_size in shape[:-2]:
-            batch_size *= axis_size
+        batch_size = shape[0]
 
-        # The affine matrix acts in normalized image coordinates with the image
-        # center fixed at the origin, so no translation term is needed here.
+        # The affine matrix acts in normalized centered coordinates, so no
+        # translation term is needed here.
         angle = torch.tensor(angle_radians, device=device, dtype=torch.float32)
         cos_theta = torch.cos(angle)
         sin_theta = torch.sin(angle)
@@ -111,45 +114,68 @@ class RotationalMotionDistortion(BaseDistortion):
             align_corners=False,
         )
 
-    def _rotate_image(self, image: torch.Tensor, angle_radians: float) -> torch.Tensor:
-        """Rotate a complex image tensor with bilinear interpolation."""
+    def _rotate_kspace(self, y: torch.Tensor, angle_radians: float) -> torch.Tensor:
+        """Rotate the stored real and imaginary k-space channels together."""
 
-        image_channels, leading_shape = self._reshape_complex_image(image)
-        grid = self._rotation_grid(image.shape, image.device, angle_radians)
-        # Real and imaginary parts are resampled together so they stay aligned.
+        y_flat, leading_shape = self._reshape_kspace_channels(y)
+        grid = self._rotation_grid(y_flat.shape, y.device, angle_radians)
+        # Real and imaginary channels are resampled together so the complex
+        # k-space phase remains internally consistent.
         rotated_channels = F.grid_sample(
-            image_channels,
+            y_flat,
             grid,
             mode="bilinear",
             padding_mode="zeros",
             align_corners=False,
         )
-        return self._restore_complex_image(rotated_channels, leading_shape)
+        return self._restore_kspace_channels(rotated_channels, leading_shape)
 
     def _apply_rotation(self, y: torch.Tensor, angle_radians: float) -> torch.Tensor:
-        """Apply the image-space rotation and return centered k-space."""
+        """Apply the centered k-space rotation and return the rotated samples."""
 
         if angle_radians == 0.0:
             return y
 
         _validate_cartesian_kspace_tensor(y)
-        y_complex = torch.view_as_complex(y.movedim(1, -1).contiguous())
-        # Convert centered Cartesian k-space to the spatial domain, rotate there,
-        # and map back to centered k-space.
-        image = torch.fft.ifft2(torch.fft.ifftshift(y_complex, dim=(-2, -1)))
-        image_rotated = self._rotate_image(image, angle_radians)
-        y_rotated = torch.fft.fftshift(torch.fft.fft2(image_rotated), dim=(-2, -1))
-        return torch.view_as_real(y_rotated).movedim(-1, 1).contiguous()
+        return self._rotate_kspace(y, angle_radians)
+
+    def _apply_rotation_adjoint(self, y: torch.Tensor, angle_radians: float) -> torch.Tensor:
+        """Apply the exact adjoint of the implemented interpolation operator."""
+
+        if angle_radians == 0.0:
+            return y
+
+        _validate_cartesian_kspace_tensor(y)
+
+        # Reverse-angle resampling is not the adjoint once interpolation and
+        # zero-padding enter the operator. Use the vector-Jacobian product of
+        # the actual forward map so reconstruction methods see the correct
+        # linear adjoint of the implemented distortion.
+        with torch.enable_grad():
+            probe = torch.zeros_like(y, requires_grad=True)
+
+            def forward_fn(probe_input: torch.Tensor) -> torch.Tensor:
+                return self._apply_rotation(probe_input, angle_radians)
+
+            _, adjoint = torch.autograd.functional.vjp(
+                forward_fn,
+                probe,
+                v=y.detach(),
+                create_graph=False,
+                strict=False,
+            )
+
+        return adjoint.detach()
 
     def A(self, y: torch.Tensor) -> torch.Tensor:
-        """Rotate the image-domain object and return centered k-space."""
+        """Rotate the centered k-space samples corresponding to image motion."""
 
         return self._apply_rotation(y, self.angle_radians)
 
     def A_adjoint(self, y: torch.Tensor) -> torch.Tensor:
-        """Apply the matched reverse-angle rotation as the practical adjoint."""
+        """Apply the exact adjoint of the implemented rotation operator."""
 
-        return self._apply_rotation(y, -self.angle_radians)
+        return self._apply_rotation_adjoint(y, self.angle_radians)
 
 
 class SegmentedTranslationMotionDistortion(BaseDistortion):

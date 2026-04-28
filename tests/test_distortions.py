@@ -306,21 +306,15 @@ def test_rotational_motion_rotates_image_content(device):
     assert torch.allclose(max_position.float(), torch.tensor([23.0, 20.0]), atol=1.0)
 
 
-def test_rotational_motion_forward_then_reverse_is_close(device):
+def test_rotational_motion_uses_matched_adjoint(device):
     distortion = RotationalMotionDistortion(angle_radians=torch.pi / 6)
-    image = torch.zeros((64, 64), dtype=torch.complex64, device=device)
-    image[24:40, 28:36] = 1.0
-    kspace = torch.fft.fftshift(torch.fft.fft2(image))
-    y = torch.view_as_real(kspace).movedim(-1, 0).unsqueeze(0).contiguous()
+    x = torch.randn((1, 2, 64, 64), device=device)
+    y = torch.randn((1, 2, 64, 64), device=device)
 
-    y_roundtrip = distortion.A_adjoint(distortion.A(y))
-    image_roundtrip = torch.fft.ifft2(
-        torch.fft.ifftshift(torch.view_as_complex(y_roundtrip[0].movedim(0, -1).contiguous()))
-    )
-    magnitude_error = torch.abs(torch.abs(image_roundtrip) - torch.abs(image))
+    lhs = torch.sum(distortion.A(x) * y)
+    rhs = torch.sum(x * distortion.A_adjoint(y))
 
-    assert torch.mean(magnitude_error) < 0.03
-    assert torch.max(magnitude_error) < 0.4
+    assert torch.allclose(lhs, rhs, atol=1e-4, rtol=1e-4)
 
 
 def test_phase_encode_ghosting_zero_phase_and_unit_scale_is_identity(device):
