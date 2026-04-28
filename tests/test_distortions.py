@@ -16,6 +16,7 @@ from mri_recon.distortions import (
     IsotropicResolutionReduction,
     OffCenterAnisotropicGaussianKspaceBiasField,
     PhaseEncodeGhostingDistortion,
+    RotationalMotionDistortion,
     SegmentedTranslationMotionDistortion,
     TranslationMotionDistortion,
 )
@@ -28,8 +29,23 @@ DISTORTIONS = [
     "Off-center anisotropic Gaussian bias field",
     "Phase-encode ghosting",
     "Translation motion",
+    "Rotational motion",
     "Segmented translation motion",
 ]
+
+EXACT_OPERATOR_DISTORTIONS = {
+    "None",
+    "Isotropic LP",
+    "Anisotropic LP",
+    "Phase-encode ghosting",
+    "Translation motion",
+    "Segmented translation motion",
+}
+NON_EXPANSIVE_DISTORTIONS = {
+    "Gaussian bias field",
+    "Off-center anisotropic Gaussian bias field",
+    "Rotational motion",
+}
 
 
 def choose_distortion(name):
@@ -62,6 +78,8 @@ def choose_distortion(name):
             )
         case "Translation motion":
             return TranslationMotionDistortion(shift_x_pixels=8.0, shift_y_pixels=4.0)
+        case "Rotational motion":
+            return RotationalMotionDistortion(angle_radians=torch.pi / 6)
         case "Segmented translation motion":
             return SegmentedTranslationMotionDistortion(
                 shift_x_pixels=(0.0, 2.0, 5.0, 5.0),
@@ -82,20 +100,20 @@ def device():
 )  # singlecoil and multicoil
 def test_distortion_properties(name, img_size, device):
     """
-    Test that distortion itself and distortion inserted into MultiCoilMRI both satisfy:
-    - Adjointness = 0
-    - Norm = 1
+    Test exact operators for adjointness and norm preservation, and verify that
+    approximate or attenuation operators remain shape-preserving and non-expansive.
     """
     distortion = choose_distortion(name)
     y = torch.randn(img_size, device=device)
     x_dummy = torch.randn(1, 2, *img_size[-2:], device=device)
 
-    assert distortion.adjointness_test(x_dummy) < 0.01
-    if name in {"Gaussian bias field", "Off-center anisotropic Gaussian bias field"}:
-        y_distorted = distortion.A(x_dummy)
-        assert torch.max(torch.abs(y_distorted)) <= torch.max(torch.abs(x_dummy)) + 1e-6
-    else:
+    if name in EXACT_OPERATOR_DISTORTIONS:
+        assert distortion.adjointness_test(x_dummy) < 0.01
         assert abs(distortion.compute_norm(x_dummy, squared=False) - 1) < 0.01
+    elif name in NON_EXPANSIVE_DISTORTIONS:
+        y_distorted = distortion.A(x_dummy)
+        assert y_distorted.shape == x_dummy.shape
+        assert torch.max(torch.abs(y_distorted)) <= torch.max(torch.abs(x_dummy)) + 1e-6
 
     if len(img_size) == 4:  # singlecoil
         coil_maps = None
@@ -107,8 +125,10 @@ def test_distortion_properties(name, img_size, device):
         distortion=distortion, img_size=(1, 2, *y.shape[-2:]), coil_maps=coil_maps, device=device
     )
 
-    assert physics.adjointness_test(x_dummy) < 0.01
-    if name in {"Gaussian bias field", "Off-center anisotropic Gaussian bias field"}:
+    if name in EXACT_OPERATOR_DISTORTIONS:
+        assert physics.adjointness_test(x_dummy) < 0.01
+        assert abs(physics.compute_norm(x_dummy, squared=False) - 1) < 0.01
+    elif name in NON_EXPANSIVE_DISTORTIONS:
         y_physics = physics.A(x_dummy)
         y_clean = DistortedKspaceMultiCoilMRI(
             distortion=BaseDistortion(),
@@ -117,8 +137,6 @@ def test_distortion_properties(name, img_size, device):
             device=device,
         ).A(x_dummy)
         assert torch.max(torch.abs(y_physics)) <= torch.max(torch.abs(y_clean)) + 1e-6
-    else:
-        assert abs(physics.compute_norm(x_dummy, squared=False) - 1) < 0.01
 
 
 def test_gaussian_noise_distortion_preserves_shape_and_changes_values(device):
@@ -245,6 +263,64 @@ def test_translation_motion_rejects_non_floating_tensor(device):
 
     with pytest.raises(TypeError, match="floating-point"):
         distortion.A(y)
+
+
+def test_rotational_motion_zero_angle_is_identity(device):
+    distortion = RotationalMotionDistortion(angle_radians=0.0)
+    y = torch.randn((1, 2, 64, 64), device=device)
+
+    assert torch.equal(distortion.A(y), y)
+    assert torch.equal(distortion.A_adjoint(y), y)
+
+
+def test_rotational_motion_rejects_invalid_kspace_shape(device):
+    distortion = RotationalMotionDistortion(angle_radians=torch.pi / 8)
+    y = torch.randn((1, 64, 64), device=device)
+
+    with pytest.raises(ValueError, match="Expected k-space with shape"):
+        distortion.A(y)
+
+
+def test_rotational_motion_rejects_non_floating_tensor(device):
+    distortion = RotationalMotionDistortion(angle_radians=torch.pi / 8)
+    y = torch.zeros((1, 2, 64, 64), device=device, dtype=torch.int64)
+
+    with pytest.raises(TypeError, match="floating-point"):
+        distortion.A(y)
+
+
+def test_rotational_motion_rotates_image_content(device):
+    angle_radians = torch.pi / 2
+    distortion = RotationalMotionDistortion(angle_radians=angle_radians)
+    image = torch.zeros((64, 64), dtype=torch.complex64, device=device)
+    image[20, 40] = 1.0
+
+    kspace = torch.fft.fftshift(torch.fft.fft2(image))
+    y = torch.view_as_real(kspace).movedim(-1, 0).unsqueeze(0).contiguous()
+
+    y_distorted = distortion.A(y)
+    kspace_distorted = torch.view_as_complex(y_distorted[0].movedim(0, -1).contiguous())
+    image_distorted = torch.fft.ifft2(torch.fft.ifftshift(kspace_distorted))
+    max_position = torch.nonzero(torch.abs(image_distorted) == torch.abs(image_distorted).max())[0]
+
+    assert torch.allclose(max_position.float(), torch.tensor([23.0, 20.0]), atol=1.0)
+
+
+def test_rotational_motion_forward_then_reverse_is_close(device):
+    distortion = RotationalMotionDistortion(angle_radians=torch.pi / 6)
+    image = torch.zeros((64, 64), dtype=torch.complex64, device=device)
+    image[24:40, 28:36] = 1.0
+    kspace = torch.fft.fftshift(torch.fft.fft2(image))
+    y = torch.view_as_real(kspace).movedim(-1, 0).unsqueeze(0).contiguous()
+
+    y_roundtrip = distortion.A_adjoint(distortion.A(y))
+    image_roundtrip = torch.fft.ifft2(
+        torch.fft.ifftshift(torch.view_as_complex(y_roundtrip[0].movedim(0, -1).contiguous()))
+    )
+    magnitude_error = torch.abs(torch.abs(image_roundtrip) - torch.abs(image))
+
+    assert torch.mean(magnitude_error) < 0.03
+    assert torch.max(magnitude_error) < 0.4
 
 
 def test_phase_encode_ghosting_zero_phase_and_unit_scale_is_identity(device):

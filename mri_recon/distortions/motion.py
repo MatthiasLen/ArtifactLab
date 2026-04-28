@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import torch
+import torch.nn.functional as F
 
 from mri_recon.distortions.base import (
     BaseDistortion,
@@ -51,6 +52,104 @@ class TranslationMotionDistortion(BaseDistortion):
         y_complex = torch.view_as_complex(y.movedim(1, -1).contiguous())
         y_moved = y_complex * torch.conj(self._phase_ramp(y.shape, y.device))
         return torch.view_as_real(y_moved).movedim(-1, 1).contiguous()
+
+
+class RotationalMotionDistortion(BaseDistortion):
+    """Rigid in-plane rotation applied by resampling the image-domain object.
+
+    The measured k-space is converted to image space, rotated around the image
+    center by ``angle_radians``, and transformed back to k-space. Unlike
+    translation, arbitrary rotation is not an elementwise phase ramp in
+    Cartesian k-space, so this operator uses interpolation.
+
+    :param float angle_radians: In-plane rotation angle in radians.
+    """
+
+    def __init__(self, angle_radians: float = torch.pi / 12) -> None:
+        super().__init__()
+        self.angle_radians = float(angle_radians)
+
+    def _reshape_complex_image(self, image: torch.Tensor) -> tuple[torch.Tensor, tuple[int, ...]]:
+        """Flatten leading axes and expose complex values as two channels."""
+
+        leading_shape = image.shape[:-2]
+        image_flat = image.reshape(-1, *image.shape[-2:])
+        image_channels = torch.view_as_real(image_flat).movedim(-1, 1).contiguous()
+        return image_channels, leading_shape
+
+    def _restore_complex_image(
+        self, image_channels: torch.Tensor, leading_shape: tuple[int, ...]
+    ) -> torch.Tensor:
+        """Restore flattened image channels to the original complex shape."""
+
+        image_flat = torch.view_as_complex(image_channels.movedim(1, -1).contiguous())
+        return image_flat.reshape(*leading_shape, *image_flat.shape[-2:])
+
+    def _rotation_grid(
+        self, shape: tuple[int, ...], device: torch.device, angle_radians: float
+    ) -> torch.Tensor:
+        """Build a sampling grid for an image-centered in-plane rotation."""
+
+        batch_size = 1
+        for axis_size in shape[:-2]:
+            batch_size *= axis_size
+
+        # The affine matrix acts in normalized image coordinates with the image
+        # center fixed at the origin, so no translation term is needed here.
+        angle = torch.tensor(angle_radians, device=device, dtype=torch.float32)
+        cos_theta = torch.cos(angle)
+        sin_theta = torch.sin(angle)
+        theta = torch.tensor(
+            [[cos_theta, -sin_theta, 0.0], [sin_theta, cos_theta, 0.0]],
+            device=device,
+            dtype=torch.float32,
+        ).unsqueeze(0)
+        theta = theta.expand(batch_size, -1, -1)
+        return F.affine_grid(
+            theta,
+            size=[batch_size, 2, shape[-2], shape[-1]],
+            align_corners=False,
+        )
+
+    def _rotate_image(self, image: torch.Tensor, angle_radians: float) -> torch.Tensor:
+        """Rotate a complex image tensor with bilinear interpolation."""
+
+        image_channels, leading_shape = self._reshape_complex_image(image)
+        grid = self._rotation_grid(image.shape, image.device, angle_radians)
+        # Real and imaginary parts are resampled together so they stay aligned.
+        rotated_channels = F.grid_sample(
+            image_channels,
+            grid,
+            mode="bilinear",
+            padding_mode="zeros",
+            align_corners=False,
+        )
+        return self._restore_complex_image(rotated_channels, leading_shape)
+
+    def _apply_rotation(self, y: torch.Tensor, angle_radians: float) -> torch.Tensor:
+        """Apply the image-space rotation and return centered k-space."""
+
+        if angle_radians == 0.0:
+            return y
+
+        _validate_cartesian_kspace_tensor(y)
+        y_complex = torch.view_as_complex(y.movedim(1, -1).contiguous())
+        # Convert centered Cartesian k-space to the spatial domain, rotate there,
+        # and map back to centered k-space.
+        image = torch.fft.ifft2(torch.fft.ifftshift(y_complex, dim=(-2, -1)))
+        image_rotated = self._rotate_image(image, angle_radians)
+        y_rotated = torch.fft.fftshift(torch.fft.fft2(image_rotated), dim=(-2, -1))
+        return torch.view_as_real(y_rotated).movedim(-1, 1).contiguous()
+
+    def A(self, y: torch.Tensor) -> torch.Tensor:
+        """Rotate the image-domain object and return centered k-space."""
+
+        return self._apply_rotation(y, self.angle_radians)
+
+    def A_adjoint(self, y: torch.Tensor) -> torch.Tensor:
+        """Apply the matched reverse-angle rotation as the practical adjoint."""
+
+        return self._apply_rotation(y, -self.angle_radians)
 
 
 class SegmentedTranslationMotionDistortion(BaseDistortion):

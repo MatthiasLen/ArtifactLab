@@ -34,6 +34,7 @@ DISTORTIONS = [
     "Phase-encode ghosting",
     "Segmented translation motion",
     "Translation motion",
+    "Rotational motion",
     "Off-center anisotropic Gaussian bias field",
     "Gaussian bias field",
     "Anisotropic LP",
@@ -150,6 +151,8 @@ def choose_distortion(name: str) -> BaseDistortion:
             )
         case "Translation motion":
             return TranslationMotionDistortion(shift_x_pixels=60, shift_y_pixels=10)
+        case "Rotational motion":
+            return RotationalMotionDistortion(angle_radians=torch.pi / 6)
         case "Segmented translation motion":
             return SegmentedTranslationMotionDistortion(
                 shift_x_pixels=(0.0, 20.0, 50.0, -50.0),
