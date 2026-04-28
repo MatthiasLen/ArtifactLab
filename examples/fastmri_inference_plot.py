@@ -21,7 +21,7 @@ from mri_recon.reconstruction import *
 REPORT_DIR = Path("reports") / "fastmri_inference_plot"
 REPORT_DIR.mkdir(parents=True, exist_ok=True)
 ALGORITHMS = [
-    "zero-filled",
+    # "zero-filled",
     # "conjugate-gradient",
     # "ram",
     # "dip",
@@ -29,7 +29,7 @@ ALGORITHMS = [
     # "wavelet-fista",
     # "tv-fista",
     # "tv-pdhg",
-   "unet",
+    "unet",
 ]
 DISTORTIONS = [
     "Segmented translation motion",
