@@ -255,11 +255,14 @@ def test_kaiser_taper_resolution_reduction_zero_transition_matches_hard_cutoff(d
 
 def test_radial_high_pass_emphasis_distortion_boosts_edges_more_than_center(device):
     distortion = RadialHighPassEmphasisDistortion(alpha=0.4, exponent=2.0)
+    shape = (1, 2, 33, 33)
+    center_y = shape[-2] // 2
+    center_x = shape[-1] // 2
 
-    mask = distortion._mask((1, 2, 33, 33), torch.device(device))
+    mask = distortion._mask(shape, torch.device(device))
 
-    assert mask[16, 16] == pytest.approx(1.0)
-    assert mask[0, 0] == pytest.approx(1.4)
+    assert mask[center_y, center_x] == pytest.approx(1.0)
+    assert mask[0, 0] == pytest.approx(1.0 + distortion.alpha)
     assert torch.all(mask >= 1.0)
 
 
