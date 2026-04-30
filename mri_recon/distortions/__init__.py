@@ -5,7 +5,11 @@ from .base import (
 )
 from .biasfield import GaussianKspaceBiasField, OffCenterAnisotropicGaussianKspaceBiasField
 from .ghosting import PhaseEncodeGhostingDistortion
-from .motion import SegmentedTranslationMotionDistortion, TranslationMotionDistortion
+from .motion import (
+    RotationalMotionDistortion,
+    SegmentedTranslationMotionDistortion,
+    TranslationMotionDistortion,
+)
 from .noise import GaussianNoiseDistortion
 from .resolution import (
     AnisotropicResolutionReduction,

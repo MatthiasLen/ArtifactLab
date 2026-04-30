@@ -34,6 +34,7 @@ DISTORTIONS = [
     "Phase-encode ghosting",
     "Segmented translation motion",
     "Translation motion",
+    "Rotational motion",
     "Off-center anisotropic Gaussian bias field",
     "Gaussian bias field",
     "Anisotropic LP",
@@ -163,6 +164,8 @@ def choose_distortion(name: str) -> BaseDistortion:
             )
         case "Translation motion":
             return TranslationMotionDistortion(shift_x_pixels=60, shift_y_pixels=10)
+        case "Rotational motion":
+            return RotationalMotionDistortion(angle_radians=torch.pi / 6)
         case "Segmented translation motion":
             return SegmentedTranslationMotionDistortion(
                 shift_x_pixels=(0.0, 20.0, 50.0, -50.0),
@@ -244,8 +247,9 @@ if __name__ == "__main__":
             y_distorted = distortion.A(y)
 
             # generate reference reconstructions (CG) for both clean and distorted k-space
+            # without correction for the distortion, i.e. using physics_clean in both cases
             x_clean = ConjugateGradientReconstructor()(y, physics_clean)
-            x_distorted = ConjugateGradientReconstructor()(y, physics)
+            x_distorted = ConjugateGradientReconstructor()(y_distorted, physics_clean)
 
             # plot and save the k-space magnitude for both clean and distorted k-space
             save_kspace_plot(
