@@ -40,11 +40,11 @@ EXACT_OPERATOR_DISTORTIONS = {
     "Phase-encode ghosting",
     "Translation motion",
     "Segmented translation motion",
+    "Rotational motion",
 }
 NON_EXPANSIVE_DISTORTIONS = {
-    "Gaussian bias field",
     "Off-center anisotropic Gaussian bias field",
-    "Rotational motion",
+    "Gaussian bias field",
 }
 
 
@@ -290,10 +290,10 @@ def test_rotational_motion_rejects_non_floating_tensor(device):
 
 
 def test_rotational_motion_rotates_image_content(device):
-    angle_radians = torch.pi / 2
+    angle_radians = -0.5 * torch.pi
     distortion = RotationalMotionDistortion(angle_radians=angle_radians)
-    image = torch.zeros((64, 64), dtype=torch.complex64, device=device)
-    image[20, 40] = 1.0
+    image = torch.zeros((63, 63), dtype=torch.complex64, device=device)
+    image[31, 40] = 1.0
 
     kspace = torch.fft.fftshift(torch.fft.fft2(image))
     y = torch.view_as_real(kspace).movedim(-1, 0).unsqueeze(0).contiguous()
@@ -301,9 +301,11 @@ def test_rotational_motion_rotates_image_content(device):
     y_distorted = distortion.A(y)
     kspace_distorted = torch.view_as_complex(y_distorted[0].movedim(0, -1).contiguous())
     image_distorted = torch.fft.ifft2(torch.fft.ifftshift(kspace_distorted))
-    max_position = torch.nonzero(torch.abs(image_distorted) == torch.abs(image_distorted).max())[0]
+    magnitude = torch.abs(image_distorted)
+    max_index = magnitude.reshape(-1).argmax()
+    max_position = torch.tensor(torch.unravel_index(max_index, magnitude.shape), device=device)
 
-    assert torch.allclose(max_position.float(), torch.tensor([23.0, 20.0]), atol=1.0)
+    assert torch.equal(max_position, torch.tensor([40, 32], device=device))
 
 
 def test_rotational_motion_uses_matched_adjoint(device):

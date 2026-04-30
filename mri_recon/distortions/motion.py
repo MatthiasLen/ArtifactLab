@@ -148,7 +148,7 @@ class RotationalMotionDistortion(BaseDistortion):
         _validate_cartesian_kspace_tensor(y)
 
         # Reverse-angle resampling is not the adjoint once interpolation and
-        # zero-padding enter the operator. Use the vector-Jacobian product of
+        # zero-padding enter the operator. Use the vector-Jacobian product (vjp) of
         # the actual forward map so reconstruction methods see the correct
         # linear adjoint of the implemented distortion.
         with torch.enable_grad():
