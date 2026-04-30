@@ -216,3 +216,30 @@ class KaiserTaperResolutionReduction(SelfAdjointMultiplicativeMaskDistortion):
             profile="kaiser",
             beta=self.beta,
         )
+
+
+class RadialHighPassEmphasisDistortion(SelfAdjointMultiplicativeMaskDistortion):
+    """Radially boost high frequencies with a smooth monotone gain field.
+
+    The mask equals ``1 + alpha * r**exponent`` on the normalized radial
+    frequency grid, where ``r`` is ``0`` at the k-space center and ``1`` at the
+    sampled edge.
+
+    :param float alpha: Non-negative gain added at the k-space edge.
+    :param float exponent: Positive roll-on exponent controlling how quickly the
+        boost increases with radius.
+    """
+
+    def __init__(self, alpha: float = 0.4, exponent: float = 2.0) -> None:
+        super().__init__()
+        if alpha < 0.0:
+            raise ValueError("alpha must be non-negative")
+        if exponent <= 0.0:
+            raise ValueError("exponent must be positive")
+
+        self.alpha = alpha
+        self.exponent = exponent
+
+    def _mask(self, shape: tuple[int, ...], device: torch.device) -> torch.Tensor:
+        radius = _radial_frequency(shape).to(device)
+        return 1.0 + self.alpha * radius.pow(self.exponent)

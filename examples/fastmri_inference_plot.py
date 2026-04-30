@@ -40,6 +40,7 @@ DISTORTIONS = [
     "Anisotropic LP",
     "Hann taper LP",
     "Kaiser taper LP",
+    "Radial high-pass emphasis",
     "Gaussian noise",
     "Isotropic LP",
 ]
@@ -152,6 +153,8 @@ def choose_distortion(name: str) -> BaseDistortion:
                 transition_fraction=0.4,
                 beta=8.6,
             )
+        case "Radial high-pass emphasis":
+            return RadialHighPassEmphasisDistortion(alpha=0.4, exponent=2.0)
         case "Isotropic LP":
             return IsotropicResolutionReduction(radius_fraction=0.1)
         case "Off-center anisotropic Gaussian bias field":
