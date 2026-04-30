@@ -19,6 +19,7 @@ from mri_recon.distortions import (
     OffCenterAnisotropicGaussianKspaceBiasField,
     PhaseEncodeGhostingDistortion,
     RotationalMotionDistortion,
+    SegmentedRotationalMotionDistortion,
     SegmentedTranslationMotionDistortion,
     SelfAdjointMultiplicativeMaskDistortion,
     TranslationMotionDistortion,
@@ -35,6 +36,7 @@ DISTORTIONS = [
     "Phase-encode ghosting",
     "Translation motion",
     "Rotational motion",
+    "Segmented rotational motion",
     "Segmented translation motion",
 ]
 
@@ -50,6 +52,9 @@ EXACT_OPERATOR_DISTORTIONS = {
 NON_EXPANSIVE_DISTORTIONS = {
     "Off-center anisotropic Gaussian bias field",
     "Gaussian bias field",
+}
+INTERPOLATION_BASED_DISTORTIONS = {
+    "Segmented rotational motion",
 }
 
 
@@ -96,6 +101,10 @@ def choose_distortion(name):
             return TranslationMotionDistortion(shift_x_pixels=8.0, shift_y_pixels=4.0)
         case "Rotational motion":
             return RotationalMotionDistortion(angle_radians=torch.pi / 6)
+        case "Segmented rotational motion":
+            return SegmentedRotationalMotionDistortion(
+                angle_radians=(0.0, torch.pi / 10, -torch.pi / 12),
+            )
         case "Segmented translation motion":
             return SegmentedTranslationMotionDistortion(
                 shift_x_pixels=(0.0, 2.0, 5.0, 5.0),
@@ -126,6 +135,9 @@ def test_distortion_properties(name, img_size, device):
     if name in EXACT_OPERATOR_DISTORTIONS:
         assert distortion.adjointness_test(x_dummy) < 0.01
         assert abs(distortion.compute_norm(x_dummy, squared=False) - 1) < 0.01
+    elif name in INTERPOLATION_BASED_DISTORTIONS:
+        assert distortion.adjointness_test(x_dummy) < 0.01
+        assert distortion.A(x_dummy).shape == x_dummy.shape
     elif name in NON_EXPANSIVE_DISTORTIONS:
         y_distorted = distortion.A(x_dummy)
         assert y_distorted.shape == x_dummy.shape
@@ -144,6 +156,8 @@ def test_distortion_properties(name, img_size, device):
     if name in EXACT_OPERATOR_DISTORTIONS:
         assert physics.adjointness_test(x_dummy) < 0.01
         assert abs(physics.compute_norm(x_dummy, squared=False) - 1) < 0.01
+    elif name in INTERPOLATION_BASED_DISTORTIONS:
+        assert physics.adjointness_test(x_dummy) < 0.01
     elif name in NON_EXPANSIVE_DISTORTIONS:
         y_physics = physics.A(x_dummy)
         y_clean = DistortedKspaceMultiCoilMRI(
@@ -373,6 +387,95 @@ def test_rotational_motion_rotates_image_content(device):
 
 def test_rotational_motion_uses_matched_adjoint(device):
     distortion = RotationalMotionDistortion(angle_radians=torch.pi / 6)
+    x = torch.randn((1, 2, 64, 64), device=device)
+    y = torch.randn((1, 2, 64, 64), device=device)
+
+    lhs = torch.sum(distortion.A(x) * y)
+    rhs = torch.sum(x * distortion.A_adjoint(y))
+
+    assert torch.allclose(lhs, rhs, atol=1e-4, rtol=1e-4)
+
+
+def test_segmented_rotational_motion_zero_angles_are_identity(device):
+    distortion = SegmentedRotationalMotionDistortion(angle_radians=(0.0, 0.0, 0.0))
+    y = torch.randn((1, 2, 64, 64), device=device)
+
+    assert torch.equal(distortion.A(y), y)
+    assert torch.equal(distortion.A_adjoint(y), y)
+
+
+def test_segmented_rotational_motion_rejects_empty_angle_tuple():
+    with pytest.raises(ValueError, match="non-empty"):
+        SegmentedRotationalMotionDistortion(angle_radians=())
+
+
+def test_segmented_rotational_motion_rejects_invalid_segment_axis():
+    with pytest.raises(ValueError, match="segment_axis must be -2 or -1"):
+        SegmentedRotationalMotionDistortion(angle_radians=(0.0, 0.1), segment_axis=0)
+
+
+def test_segmented_rotational_motion_rejects_too_many_segments(device):
+    distortion = SegmentedRotationalMotionDistortion(
+        angle_radians=(0.0, 0.1, 0.2, 0.3, 0.4),
+    )
+    y = torch.randn((1, 2, 4, 64), device=device)
+
+    with pytest.raises(ValueError, match="non-empty segments"):
+        distortion.A(y)
+
+
+def test_segmented_rotational_motion_segment_slices_cover_axis_without_overlap():
+    distortion = SegmentedRotationalMotionDistortion(angle_radians=(0.0, 0.1, -0.2, 0.3))
+
+    slices = distortion._segment_slices((1, 2, 9, 7))
+
+    assert slices == [slice(0, 2), slice(2, 4), slice(4, 6), slice(6, 9)]
+
+
+def test_segmented_rotational_motion_matches_full_rotation_per_phase_encode_segment(device):
+    distortion = SegmentedRotationalMotionDistortion(
+        angle_radians=(0.0, torch.pi / 12, -torch.pi / 10),
+        segment_axis=-2,
+    )
+    y = torch.randn((2, 2, 3, 18, 20), device=device)
+
+    y_distorted = distortion.A(y)
+
+    for segment_slice, angle_radians in zip(
+        distortion._segment_slices(y.shape), distortion.angle_radians, strict=True
+    ):
+        expected_full = y
+        if angle_radians != 0.0:
+            expected_full = RotationalMotionDistortion(angle_radians=angle_radians).A(y)
+
+        assert torch.allclose(
+            y_distorted[:, :, :, segment_slice, :],
+            expected_full[:, :, :, segment_slice, :],
+        )
+
+
+def test_segmented_rotational_motion_only_changes_target_readout_segment(device):
+    baseline = SegmentedRotationalMotionDistortion(angle_radians=(0.0, 0.0), segment_axis=-1)
+    distorted = SegmentedRotationalMotionDistortion(
+        angle_radians=(0.0, torch.pi / 9),
+        segment_axis=-1,
+    )
+    y = torch.randn((1, 2, 16, 14), device=device)
+
+    y_baseline = baseline.A(y)
+    y_distorted = distorted.A(y)
+    first_segment, second_segment = distorted._segment_slices(y.shape)
+
+    assert torch.allclose(y_distorted[:, :, :, first_segment], y_baseline[:, :, :, first_segment])
+    assert not torch.allclose(
+        y_distorted[:, :, :, second_segment], y_baseline[:, :, :, second_segment]
+    )
+
+
+def test_segmented_rotational_motion_uses_matched_adjoint(device):
+    distortion = SegmentedRotationalMotionDistortion(
+        angle_radians=(0.0, torch.pi / 12, -torch.pi / 9),
+    )
     x = torch.randn((1, 2, 64, 64), device=device)
     y = torch.randn((1, 2, 64, 64), device=device)
 

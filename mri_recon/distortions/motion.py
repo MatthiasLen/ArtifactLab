@@ -178,6 +178,88 @@ class RotationalMotionDistortion(BaseDistortion):
         return self._apply_rotation_adjoint(y, self.angle_radians)
 
 
+class SegmentedRotationalMotionDistortion(RotationalMotionDistortion):
+    """Piecewise rotational motion applied across k-space acquisition segments.
+
+    For each acquisition segment, this distortion assumes one rigid in-plane
+    rotational state. It generates the full centered k-space implied by that
+    rotation, keeps only the rows or columns acquired during that timepoint, and
+    stitches the segment blocks into one inconsistent Cartesian k-space tensor.
+
+    :param tuple[float, ...] angle_radians: In-plane rotation angles, one per
+        acquisition segment.
+    :param int segment_axis: K-space axis to segment. The default ``-2`` applies
+        motion changes across the phase-encode lines.
+    """
+
+    def __init__(self, angle_radians: tuple[float, ...], segment_axis: int = -2) -> None:
+        super().__init__(angle_radians=0.0)
+        if len(angle_radians) == 0:
+            raise ValueError("angle_radians must be non-empty")
+
+        if segment_axis not in (-2, -1):
+            raise ValueError("segment_axis must be -2 or -1 for 2D k-space")
+
+        self.angle_radians = tuple(float(angle) for angle in angle_radians)
+        self.segment_axis = segment_axis
+
+    def _segment_slices(self, shape: tuple[int, ...]) -> list[slice]:
+        axis = self.segment_axis % len(shape)
+        axis_size = shape[axis]
+        if len(self.angle_radians) > axis_size:
+            raise ValueError(
+                f"Cannot split axis of length {axis_size} into {len(self.angle_radians)} non-empty segments"
+            )
+        boundaries = torch.linspace(0, axis_size, len(self.angle_radians) + 1, dtype=torch.int64)
+        return [
+            slice(int(boundaries[i]), int(boundaries[i + 1])) for i in range(len(boundaries) - 1)
+        ]
+
+    def _apply_segmented_rotation(self, y: torch.Tensor) -> torch.Tensor:
+        if all(angle == 0.0 for angle in self.angle_radians):
+            return y
+
+        _validate_cartesian_kspace_tensor(y)
+
+        axis = self.segment_axis % y.ndim
+        rotated_segments = []
+
+        for segment_slice, angle_radians in zip(
+            self._segment_slices(y.shape), self.angle_radians, strict=True
+        ):
+            rotated_full = y if angle_radians == 0.0 else self._rotate_kspace(y, angle_radians)
+            selection = [slice(None)] * y.ndim
+            selection[axis] = segment_slice
+            rotated_segments.append(rotated_full[tuple(selection)])
+
+        return torch.cat(rotated_segments, dim=axis)
+
+    def A(self, y: torch.Tensor) -> torch.Tensor:
+        return self._apply_segmented_rotation(y)
+
+    def A_adjoint(self, y: torch.Tensor) -> torch.Tensor:
+        if all(angle == 0.0 for angle in self.angle_radians):
+            return y
+
+        _validate_cartesian_kspace_tensor(y)
+
+        with torch.enable_grad():
+            probe = torch.zeros_like(y, requires_grad=True)
+
+            def forward_fn(probe_input: torch.Tensor) -> torch.Tensor:
+                return self._apply_segmented_rotation(probe_input)
+
+            _, adjoint = torch.autograd.functional.vjp(
+                forward_fn,
+                probe,
+                v=y.detach(),
+                create_graph=False,
+                strict=False,
+            )
+
+        return adjoint.detach()
+
+
 class SegmentedTranslationMotionDistortion(BaseDistortion):
     """Piecewise translation motion applied across k-space acquisition segments.
 
