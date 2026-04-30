@@ -3,4 +3,9 @@ from .biasfield import GaussianKspaceBiasField, OffCenterAnisotropicGaussianKspa
 from .ghosting import PhaseEncodeGhostingDistortion
 from .motion import SegmentedTranslationMotionDistortion, TranslationMotionDistortion
 from .noise import GaussianNoiseDistortion
-from .resolution import AnisotropicResolutionReduction, IsotropicResolutionReduction
+from .resolution import (
+    AnisotropicResolutionReduction,
+    HannTaperResolutionReduction,
+    IsotropicResolutionReduction,
+    KaiserTaperResolutionReduction,
+)
