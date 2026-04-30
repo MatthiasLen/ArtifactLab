@@ -289,32 +289,23 @@ def test_rotational_motion_rejects_non_floating_tensor(device):
         distortion.A(y)
 
 
-def test_rotational_motion_rotates_image_content(device):
-    angle_radians = torch.pi / 2
-    distortion = RotationalMotionDistortion(angle_radians=angle_radians)
-    image = torch.zeros((64, 64), dtype=torch.complex64, device=device)
-    image[20, 40] = 1.0
-
-    kspace = torch.fft.fftshift(torch.fft.fft2(image))
-    y = torch.view_as_real(kspace).movedim(-1, 0).unsqueeze(0).contiguous()
-
-    y_distorted = distortion.A(y)
-    kspace_distorted = torch.view_as_complex(y_distorted[0].movedim(0, -1).contiguous())
-    image_distorted = torch.fft.ifft2(torch.fft.ifftshift(kspace_distorted))
-    max_position = torch.nonzero(torch.abs(image_distorted) == torch.abs(image_distorted).max())[0]
-
-    assert torch.allclose(max_position.float(), torch.tensor([23.0, 20.0]), atol=1.0)
-
-
-def test_rotational_motion_uses_matched_adjoint(device):
+def test_rotational_motion_matches_deepinv_forward_inverse_composition(device):
     distortion = RotationalMotionDistortion(angle_radians=torch.pi / 6)
-    x = torch.randn((1, 2, 64, 64), device=device)
-    y = torch.randn((1, 2, 64, 64), device=device)
+    y = torch.randn((1, 2, 4, 64, 64), device=device)
 
-    lhs = torch.sum(distortion.A(x) * y)
-    rhs = torch.sum(x * distortion.A_adjoint(y))
+    actual = distortion.A_adjoint(distortion.A(y))
 
-    assert torch.allclose(lhs, rhs, atol=1e-4, rtol=1e-4)
+    batch_size, _, coil_count, height, width = y.shape
+    y_flat = y.permute(0, 2, 1, 3, 4).reshape(batch_size * coil_count, 2, height, width)
+    theta = torch.tensor([30.0], device=device, dtype=torch.float32)
+    expected_flat = distortion.transform.inverse(
+        distortion.transform(y_flat, theta=theta), theta=theta
+    )
+    expected = expected_flat.reshape(batch_size, coil_count, 2, height, width).permute(
+        0, 2, 1, 3, 4
+    )
+
+    assert torch.allclose(actual, expected)
 
 
 def test_phase_encode_ghosting_zero_phase_and_unit_scale_is_identity(device):

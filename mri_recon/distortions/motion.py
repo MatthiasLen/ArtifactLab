@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import math
+
+import deepinv as dinv
 import torch
-import torch.nn.functional as F
+from torchvision.transforms import InterpolationMode
 
 from mri_recon.distortions.base import (
     BaseDistortion,
@@ -55,127 +58,69 @@ class TranslationMotionDistortion(BaseDistortion):
 
 
 class RotationalMotionDistortion(BaseDistortion):
-    """Rigid in-plane rotation applied by resampling centered Cartesian k-space.
+    """Rigid in-plane rotation backed by a DeepInverse transform.
 
-    A rigid image-space rotation by ``angle_radians`` corresponds to the same
-    coordinate rotation in the centered Fourier domain. On the discrete sampled
-    grid this becomes an interpolation problem over the stored real and
-    imaginary k-space channels.
+    The stored real and imaginary k-space channels are rotated together using a
+    deterministic ``deepinv.transform.Rotate`` instance. Supplying the transform
+    object explicitly keeps the motion-distortion interface open to other
+    geometric transforms without reimplementing sampling boilerplate here.
 
     :param float angle_radians: In-plane rotation angle in radians.
+    :param dinv.transform.Transform | None transform: Deterministic transform
+        object used for the rotation. When ``None``, a bilinear
+        ``deepinv.transform.Rotate`` is created.
     """
 
-    def __init__(self, angle_radians: float = torch.pi / 12) -> None:
+    def __init__(
+        self,
+        angle_radians: float = torch.pi / 12,
+        transform: dinv.transform.Transform | None = None,
+    ) -> None:
         super().__init__()
         self.angle_radians = float(angle_radians)
+        self.transform = transform or dinv.transform.Rotate(
+            interpolation_mode=InterpolationMode.BILINEAR
+        )
 
-    def _reshape_kspace_channels(self, y: torch.Tensor) -> tuple[torch.Tensor, tuple[int, ...]]:
-        """Flatten batch and optional coil axes for channel-wise resampling."""
+    def _apply_rotation(self, y: torch.Tensor, inverse: bool = False) -> torch.Tensor:
+        """Apply the configured DeepInverse transform to k-space channels."""
+
+        if self.angle_radians == 0.0:
+            return y
+
+        _validate_cartesian_kspace_tensor(y)
+        if y.ndim == 4:
+            y_flat = y
+        else:
+            batch_size, _, coil_count, height, width = y.shape
+            y_flat = y.permute(0, 2, 1, 3, 4).reshape(batch_size * coil_count, 2, height, width)
+
+        params = {
+            "theta": torch.tensor(
+                [math.degrees(self.angle_radians)],
+                device=y.device,
+                dtype=torch.float32,
+            )
+        }
+        if inverse:
+            y_rotated = self.transform.inverse(y_flat, **params)
+        else:
+            y_rotated = self.transform(y_flat, **params)
 
         if y.ndim == 4:
-            return y, ()
+            return y_rotated
 
-        leading_shape = (y.shape[0], y.shape[2])
-        y_flat = y.permute(0, 2, 1, 3, 4).reshape(-1, 2, y.shape[-2], y.shape[-1])
-        return y_flat, leading_shape
-
-    def _restore_kspace_channels(
-        self, y_flat: torch.Tensor, leading_shape: tuple[int, ...]
-    ) -> torch.Tensor:
-        """Restore flattened batch and coil axes after resampling."""
-
-        if not leading_shape:
-            return y_flat
-
-        batch_size, coil_count = leading_shape
-        return y_flat.reshape(batch_size, coil_count, 2, *y_flat.shape[-2:]).permute(0, 2, 1, 3, 4)
-
-    def _rotation_grid(
-        self, shape: tuple[int, ...], device: torch.device, angle_radians: float
-    ) -> torch.Tensor:
-        """Build a sampling grid for a centered in-plane coordinate rotation."""
-
-        batch_size = shape[0]
-
-        # The affine matrix acts in normalized centered coordinates, so no
-        # translation term is needed here.
-        angle = torch.tensor(angle_radians, device=device, dtype=torch.float32)
-        cos_theta = torch.cos(angle)
-        sin_theta = torch.sin(angle)
-        theta = torch.tensor(
-            [[cos_theta, -sin_theta, 0.0], [sin_theta, cos_theta, 0.0]],
-            device=device,
-            dtype=torch.float32,
-        ).unsqueeze(0)
-        theta = theta.expand(batch_size, -1, -1)
-        return F.affine_grid(
-            theta,
-            size=[batch_size, 2, shape[-2], shape[-1]],
-            align_corners=False,
-        )
-
-    def _rotate_kspace(self, y: torch.Tensor, angle_radians: float) -> torch.Tensor:
-        """Rotate the stored real and imaginary k-space channels together."""
-
-        y_flat, leading_shape = self._reshape_kspace_channels(y)
-        grid = self._rotation_grid(y_flat.shape, y.device, angle_radians)
-        # Real and imaginary channels are resampled together so the complex
-        # k-space phase remains internally consistent.
-        rotated_channels = F.grid_sample(
-            y_flat,
-            grid,
-            mode="bilinear",
-            padding_mode="zeros",
-            align_corners=False,
-        )
-        return self._restore_kspace_channels(rotated_channels, leading_shape)
-
-    def _apply_rotation(self, y: torch.Tensor, angle_radians: float) -> torch.Tensor:
-        """Apply the centered k-space rotation and return the rotated samples."""
-
-        if angle_radians == 0.0:
-            return y
-
-        _validate_cartesian_kspace_tensor(y)
-        return self._rotate_kspace(y, angle_radians)
-
-    def _apply_rotation_adjoint(self, y: torch.Tensor, angle_radians: float) -> torch.Tensor:
-        """Apply the exact adjoint of the implemented interpolation operator."""
-
-        if angle_radians == 0.0:
-            return y
-
-        _validate_cartesian_kspace_tensor(y)
-
-        # Reverse-angle resampling is not the adjoint once interpolation and
-        # zero-padding enter the operator. Use the vector-Jacobian product of
-        # the actual forward map so reconstruction methods see the correct
-        # linear adjoint of the implemented distortion.
-        with torch.enable_grad():
-            probe = torch.zeros_like(y, requires_grad=True)
-
-            def forward_fn(probe_input: torch.Tensor) -> torch.Tensor:
-                return self._apply_rotation(probe_input, angle_radians)
-
-            _, adjoint = torch.autograd.functional.vjp(
-                forward_fn,
-                probe,
-                v=y.detach(),
-                create_graph=False,
-                strict=False,
-            )
-
-        return adjoint.detach()
+        return y_rotated.reshape(batch_size, coil_count, 2, height, width).permute(0, 2, 1, 3, 4)
 
     def A(self, y: torch.Tensor) -> torch.Tensor:
         """Rotate the centered k-space samples corresponding to image motion."""
 
-        return self._apply_rotation(y, self.angle_radians)
+        return self._apply_rotation(y, inverse=False)
 
     def A_adjoint(self, y: torch.Tensor) -> torch.Tensor:
-        """Apply the exact adjoint of the implemented rotation operator."""
+        """Apply the transform inverse used as the rotation back-projection."""
 
-        return self._apply_rotation_adjoint(y, self.angle_radians)
+        return self._apply_rotation(y, inverse=True)
 
 
 class SegmentedTranslationMotionDistortion(BaseDistortion):
