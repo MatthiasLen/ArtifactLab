@@ -512,4 +512,3 @@ def test_self_adjoint_multiplicative_mask_distortion_a_adjoint_equals_a(device):
     y = torch.randn((1, 2, 32, 32), device=device)
 
     assert torch.equal(distortion.A(y), distortion.A_adjoint(y))
-
