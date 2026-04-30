@@ -2,14 +2,18 @@
 
 from __future__ import annotations
 
-from math import floor
-
 import torch
 
 from mri_recon.distortions.base import SelfAdjointMultiplicativeMaskDistortion
 
 
 PATTERNS = {"uniform_random", "variable_density_random", "equispaced"}
+
+# Lorentzian offset that controls how steeply the variable-density weights
+# fall off with normalized distance from k-space center.
+# Smaller values → steeper density gradient; 0.05 gives ~20x weight ratio
+# between the ACS boundary and the k-space edge.
+_VD_WEIGHT_OFFSET: float = 0.05
 
 
 class CartesianUndersampling(SelfAdjointMultiplicativeMaskDistortion):
@@ -35,6 +39,8 @@ class CartesianUndersampling(SelfAdjointMultiplicativeMaskDistortion):
         (phase-encode for 4D tensors), can also be -3 for 5D tensors.
     :param int | None seed: Random seed for reproducible mask generation.
         If None, uses unseeded randomness (not recommended for reproducibility).
+        Has no effect when ``pattern="equispaced"`` because that pattern is
+        fully deterministic and uses no randomness.
     """
 
     def __init__(
@@ -76,6 +82,7 @@ class CartesianUndersampling(SelfAdjointMultiplicativeMaskDistortion):
         self.seed = seed
         self._cached_mask = None
         self._cached_shape = None
+        self._cached_device: torch.device | None = None
 
     def _mask(self, shape: tuple[int, ...], device: torch.device) -> torch.Tensor:
         """Generate a binary Cartesian undersampling mask.
@@ -89,9 +96,14 @@ class CartesianUndersampling(SelfAdjointMultiplicativeMaskDistortion):
         :returns: Binary mask broadcastable to shape.
         :rtype: torch.Tensor
         """
-        # Cache the mask if shape hasn't changed
-        if self._cached_mask is not None and self._cached_shape == shape:
-            return self._cached_mask.to(device)
+        # Cache the mask keyed on both shape and device so that repeated GPU
+        # forward passes do not perform a CPU→GPU copy on every call.
+        if (
+            self._cached_mask is not None
+            and self._cached_shape == shape
+            and self._cached_device == device
+        ):
+            return self._cached_mask
 
         # Get the size along the undersampling axis
         axis_size = shape[self.axis]
@@ -113,11 +125,13 @@ class CartesianUndersampling(SelfAdjointMultiplicativeMaskDistortion):
             if self.seed is not None and rng_state is not None:
                 torch.set_rng_state(rng_state)
 
-        # Cache the mask
+        # Move to the target device and cache, including the device.
+        mask = mask.to(device)
         self._cached_mask = mask
         self._cached_shape = shape
+        self._cached_device = device
 
-        return mask.to(device)
+        return mask
 
     def _generate_1d_mask(self, axis_size: int) -> torch.Tensor:
         """Generate a 1D binary mask along the undersampling axis.
@@ -189,7 +203,7 @@ class CartesianUndersampling(SelfAdjointMultiplicativeMaskDistortion):
 
             # Favor low-frequency lines near the ACS boundary while preserving
             # non-zero probability across the periphery.
-            weights = 1.0 / (0.05 + normalized_distances.square())
+            weights = 1.0 / (_VD_WEIGHT_OFFSET + normalized_distances.square())
             selected_positions = torch.multinomial(
                 weights,
                 num_samples=num_peripheral,
@@ -207,26 +221,27 @@ class CartesianUndersampling(SelfAdjointMultiplicativeMaskDistortion):
         peripheral_indices: torch.Tensor,
         num_peripheral: int,
     ) -> torch.Tensor:
-        """Select approximately evenly spaced peripheral indices."""
+        """Select evenly spaced peripheral indices.
+
+        Lines are spaced uniformly within the peripheral index array.
+        Because the peripheral array has a gap at the ACS region, the spacing
+        between selected k-space lines will be approximately doubled near the
+        ACS boundary compared to the spacing in the outer periphery.
+        This pattern is fully deterministic and unaffected by ``seed``.
+        """
 
         if num_peripheral >= len(peripheral_indices):
             return peripheral_indices
 
+        # The early-return above guarantees step > 1.0, which in turn means
+        # floor((idx + 0.5) * step) is strictly increasing, so no collision
+        # resolution is needed.
         step = len(peripheral_indices) / num_peripheral
-        candidate_positions = []
-        seen_positions = set()
-        for idx in range(num_peripheral):
-            position = min(len(peripheral_indices) - 1, floor((idx + 0.5) * step))
-            while position in seen_positions and position + 1 < len(peripheral_indices):
-                position += 1
-            while position in seen_positions and position - 1 >= 0:
-                position -= 1
-            if position in seen_positions:
-                continue
-            seen_positions.add(position)
-            candidate_positions.append(position)
+        positions = (
+            (torch.arange(num_peripheral, dtype=torch.float32) * step + 0.5 * step).floor().long()
+        )
 
-        return peripheral_indices[torch.tensor(candidate_positions, dtype=torch.long)]
+        return peripheral_indices[positions]
 
     def _expand_mask_to_shape(
         self, mask_1d: torch.Tensor, target_shape: tuple[int, ...]
