@@ -5,7 +5,7 @@ from __future__ import annotations
 import torch
 
 from mri_recon.distortions.base import (
-    BaseDistortion,
+    SelfAdjointMultiplicativeMaskDistortion,
     _normalized_axis_frequencies,
     _radial_frequency,
 )
@@ -72,7 +72,7 @@ def _smooth_radial_low_pass_mask(
     raise ValueError(f"Unknown taper profile {profile!r}")
 
 
-class IsotropicResolutionReduction(BaseDistortion):
+class IsotropicResolutionReduction(SelfAdjointMultiplicativeMaskDistortion):
     """Low-pass truncation with a circular mask.
 
     This applies
@@ -89,20 +89,13 @@ class IsotropicResolutionReduction(BaseDistortion):
             raise ValueError("radius_fraction must be in (0, 1]")
         self.radius_fraction = radius_fraction
 
-    def A(self, y: torch.Tensor) -> torch.Tensor:
+    def _mask(self, shape: tuple[int, ...], device: torch.device) -> torch.Tensor:
         # Hard radial cutoff: removes high-frequency detail isotropically.
-        mask = _radial_frequency(y.shape) <= self.radius_fraction
-        mask = mask.to(y.device)
-        return y * mask
-
-    def A_adjoint(
-        self,
-        y: torch.Tensor,
-    ) -> torch.Tensor:
-        return self.A(y)
+        mask = _radial_frequency(shape) <= self.radius_fraction
+        return mask.to(device)
 
 
-class AnisotropicResolutionReduction(BaseDistortion):
+class AnisotropicResolutionReduction(SelfAdjointMultiplicativeMaskDistortion):
     """Axis-aligned low-pass truncation with independent cutoffs.
 
     This applies a rectangular mask
@@ -140,14 +133,8 @@ class AnisotropicResolutionReduction(BaseDistortion):
         )
         return mask.to(device)
 
-    def A(self, y: torch.Tensor) -> torch.Tensor:
-        return y * self._mask(y.shape, y.device)
 
-    def A_adjoint(self, y: torch.Tensor) -> torch.Tensor:
-        return self.A(y)
-
-
-class HannTaperResolutionReduction(BaseDistortion):
+class HannTaperResolutionReduction(SelfAdjointMultiplicativeMaskDistortion):
     """Radial low-pass reduction with a Hann transition band.
 
     The mask equals ``1`` in the low-frequency passband, tapers smoothly to
@@ -184,14 +171,8 @@ class HannTaperResolutionReduction(BaseDistortion):
             profile="hann",
         )
 
-    def A(self, y: torch.Tensor) -> torch.Tensor:
-        return y * self._mask(y.shape, y.device)
 
-    def A_adjoint(self, y: torch.Tensor) -> torch.Tensor:
-        return self.A(y)
-
-
-class KaiserTaperResolutionReduction(BaseDistortion):
+class KaiserTaperResolutionReduction(SelfAdjointMultiplicativeMaskDistortion):
     """Radial low-pass reduction with a Kaiser transition band.
 
     The mask equals ``1`` in the low-frequency passband, tapers smoothly to
@@ -235,9 +216,3 @@ class KaiserTaperResolutionReduction(BaseDistortion):
             profile="kaiser",
             beta=self.beta,
         )
-
-    def A(self, y: torch.Tensor) -> torch.Tensor:
-        return y * self._mask(y.shape, y.device)
-
-    def A_adjoint(self, y: torch.Tensor) -> torch.Tensor:
-        return self.A(y)

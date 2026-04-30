@@ -19,6 +19,7 @@ from mri_recon.distortions import (
     OffCenterAnisotropicGaussianKspaceBiasField,
     PhaseEncodeGhostingDistortion,
     SegmentedTranslationMotionDistortion,
+    SelfAdjointMultiplicativeMaskDistortion,
     TranslationMotionDistortion,
 )
 
@@ -473,3 +474,42 @@ def test_segmented_translation_motion_keeps_zero_motion_segment_and_modulates_sh
 
     assert torch.allclose(first_segment_actual, first_segment_expected)
     assert torch.allclose(second_segment_actual, second_segment_expected)
+
+
+@pytest.mark.parametrize(
+    "distortion_cls",
+    [
+        IsotropicResolutionReduction,
+        AnisotropicResolutionReduction,
+        HannTaperResolutionReduction,
+        KaiserTaperResolutionReduction,
+    ],
+)
+def test_resolution_reduction_classes_inherit_from_self_adjoint_multiplicative_mask(
+    distortion_cls,
+):
+    """Verify that all resolution-reduction classes are subclasses of the shared super class."""
+    assert issubclass(distortion_cls, SelfAdjointMultiplicativeMaskDistortion)
+    assert issubclass(distortion_cls, BaseDistortion)
+
+
+def test_self_adjoint_multiplicative_mask_distortion_requires_mask_implementation(device):
+    """Verify that the base super class raises NotImplementedError when _mask is not overridden."""
+
+    class IncompleteDistortion(SelfAdjointMultiplicativeMaskDistortion):
+        pass
+
+    distortion = IncompleteDistortion()
+    y = torch.randn((1, 2, 8, 8), device=device)
+
+    with pytest.raises(NotImplementedError):
+        distortion.A(y)
+
+
+def test_self_adjoint_multiplicative_mask_distortion_a_adjoint_equals_a(device):
+    """Verify that A_adjoint equals A for a concrete SelfAdjointMultiplicativeMaskDistortion."""
+    distortion = IsotropicResolutionReduction(radius_fraction=0.7)
+    y = torch.randn((1, 2, 32, 32), device=device)
+
+    assert torch.equal(distortion.A(y), distortion.A_adjoint(y))
+
