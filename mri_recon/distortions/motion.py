@@ -178,7 +178,7 @@ class RotationalMotionDistortion(BaseDistortion):
         return self._apply_rotation_adjoint(y, self.angle_radians)
 
 
-class SegmentedRotationalMotionDistortion(RotationalMotionDistortion):
+class SegmentedRotationalMotionDistortion(BaseDistortion):
     """Piecewise rotational motion applied across k-space acquisition segments.
 
     For each acquisition segment, this distortion assumes one rigid in-plane
@@ -193,7 +193,7 @@ class SegmentedRotationalMotionDistortion(RotationalMotionDistortion):
     """
 
     def __init__(self, angle_radians: tuple[float, ...], segment_axis: int = -2) -> None:
-        super().__init__(angle_radians=0.0)
+        super().__init__()
         if len(angle_radians) == 0:
             raise ValueError("angle_radians must be non-empty")
 
@@ -202,6 +202,7 @@ class SegmentedRotationalMotionDistortion(RotationalMotionDistortion):
 
         self.angle_radians = tuple(float(angle) for angle in angle_radians)
         self.segment_axis = segment_axis
+        self._rotation = RotationalMotionDistortion()
 
     def _segment_slices(self, shape: tuple[int, ...]) -> list[slice]:
         axis = self.segment_axis % len(shape)
@@ -227,7 +228,9 @@ class SegmentedRotationalMotionDistortion(RotationalMotionDistortion):
         for segment_slice, angle_radians in zip(
             self._segment_slices(y.shape), self.angle_radians, strict=True
         ):
-            rotated_full = y if angle_radians == 0.0 else self._rotate_kspace(y, angle_radians)
+            rotated_full = (
+                y if angle_radians == 0.0 else self._rotation._rotate_kspace(y, angle_radians)
+            )
             selection = [slice(None)] * y.ndim
             selection[axis] = segment_slice
             rotated_segments.append(rotated_full[tuple(selection)])
