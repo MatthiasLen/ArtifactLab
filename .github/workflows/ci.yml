@@ -8,7 +8,7 @@ on:
 
 jobs:
   pre-commit:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
 
     steps:
       - name: Check out repository
@@ -29,14 +29,48 @@ jobs:
         uses: actions/cache@v4
         with:
           path: .venv
-          key: venv-${{ runner.os }}-${{ hashFiles('uv.lock') }}
+          key: venv-dev-${{ runner.os }}-${{ hashFiles('uv.lock') }}
 
       - name: Sync project dependencies
         if: steps.cache-venv.outputs.cache-hit != 'true'
         run: uv sync --dev
 
+      - name: Cache pre-commit hook environments
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pre-commit
+          key: pre-commit-${{ runner.os }}-${{ hashFiles('.pre-commit-config.yaml') }}
+
       - name: Run pre-commit
         run: uv run pre-commit run --all-files
+
+  tests:
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version-file: pyproject.toml
+
+      - name: Cache virtual environment
+        id: cache-venv
+        uses: actions/cache@v4
+        with:
+          path: .venv
+          key: venv-runtime-${{ runner.os }}-${{ hashFiles('uv.lock') }}
+
+      - name: Sync project dependencies
+        if: steps.cache-venv.outputs.cache-hit != 'true'
+        run: uv sync
 
       - name: Run tests
         run: uv run pytest
