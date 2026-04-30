@@ -24,7 +24,15 @@ jobs:
         with:
           python-version-file: pyproject.toml
 
+      - name: Cache virtual environment
+        id: cache-venv
+        uses: actions/cache@v4
+        with:
+          path: .venv
+          key: venv-${{ runner.os }}-${{ hashFiles('uv.lock') }}
+
       - name: Sync project dependencies
+        if: steps.cache-venv.outputs.cache-hit != 'true'
         run: uv sync --dev
 
       - name: Run pre-commit
