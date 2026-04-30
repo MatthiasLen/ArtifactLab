@@ -1,4 +1,8 @@
-from .base import BaseDistortion, DistortedKspaceMultiCoilMRI
+from .base import (
+    BaseDistortion,
+    DistortedKspaceMultiCoilMRI,
+    SelfAdjointMultiplicativeMaskDistortion,
+)
 from .biasfield import GaussianKspaceBiasField, OffCenterAnisotropicGaussianKspaceBiasField
 from .ghosting import PhaseEncodeGhostingDistortion
 from .motion import SegmentedTranslationMotionDistortion, TranslationMotionDistortion

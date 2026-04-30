@@ -94,6 +94,54 @@ class BaseDistortion(dinv.physics.LinearPhysics):
         return self.A(y)
 
 
+class SelfAdjointMultiplicativeMaskDistortion(BaseDistortion):
+    """Base class for self-adjoint, elementwise multiplicative mask distortions.
+
+    Subclasses apply the distortion by multiplying the k-space input elementwise
+    by a real-valued mask.  Because real-valued elementwise multiplication is
+    self-adjoint, ``A_adjoint`` is identical to ``A``.
+
+    Subclasses must implement :meth:`_mask`:
+
+    .. code-block:: python
+
+        def _mask(self, shape: tuple[int, ...], device: torch.device) -> torch.Tensor:
+            ...
+
+    :meth:`_mask` must return a real-valued tensor broadcastable to the input
+    shape with entries typically in ``[0, 1]``.
+    """
+
+    def _mask(self, shape: tuple[int, ...], device: torch.device) -> torch.Tensor:
+        """Compute the multiplicative mask for the given k-space shape and device.
+
+        :param tuple[int, ...] shape: Input k-space tensor shape.
+        :param torch.device device: Device on which to allocate the mask.
+        :returns: Real-valued mask broadcastable to ``shape``.
+        :rtype: torch.Tensor
+        :raises NotImplementedError: Always; subclasses must override this method.
+        """
+        raise NotImplementedError("Subclasses must implement _mask")
+
+    def A(self, y: torch.Tensor) -> torch.Tensor:
+        """Apply the multiplicative mask to the k-space input.
+
+        :param torch.Tensor y: Input k-space tensor.
+        :returns: Masked k-space tensor ``mask * y``.
+        :rtype: torch.Tensor
+        """
+        return y * self._mask(y.shape, y.device)
+
+    def A_adjoint(self, y: torch.Tensor) -> torch.Tensor:
+        """Apply the adjoint operation, which equals :meth:`A` for this self-adjoint operator.
+
+        :param torch.Tensor y: Input k-space tensor.
+        :returns: Masked k-space tensor ``mask * y``.
+        :rtype: torch.Tensor
+        """
+        return self.A(y)
+
+
 class DistortedKspaceMultiCoilMRI(dinv.physics.MultiCoilMRI):
     r"""
     Multi-coil MRI with additional kspace distortion.

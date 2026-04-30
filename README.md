@@ -22,6 +22,7 @@ MRI reconstruction playground for the MRI Metrics project.
 | Class | Selector name | Family | Summary |
 | --- | --- | --- | --- |
 | `BaseDistortion` | `None` | Identity | Leaves the k-space unchanged and serves as the no-distortion baseline. |
+| `SelfAdjointMultiplicativeMaskDistortion` | `None` | Abstract base | Super class for self-adjoint distortions that apply a real-valued elementwise multiplicative mask; subclasses implement `_mask`. |
 | `IsotropicResolutionReduction` | `Isotropic LP` | Resolution loss | Applies a circular low-pass mask in k-space to remove high frequencies isotropically. |
 | `AnisotropicResolutionReduction` | `Anisotropic LP` | Resolution loss | Applies an axis-aligned rectangular low-pass mask with separate cutoffs along `kx` and `ky`. |
 | `HannTaperResolutionReduction` | `Hann taper LP` | Resolution loss | Applies a circular low-pass mask with a raised-cosine transition band to soften the cutoff. |
