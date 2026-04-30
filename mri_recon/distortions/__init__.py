@@ -17,3 +17,4 @@ from .resolution import (
     IsotropicResolutionReduction,
     KaiserTaperResolutionReduction,
 )
+from .undersampling import CartesianUndersampling

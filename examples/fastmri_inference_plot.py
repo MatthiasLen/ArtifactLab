@@ -31,6 +31,9 @@ ALGORITHMS = [
     # "tv-pdhg",
 ]
 DISTORTIONS = [
+    "Cartesian undersampling (variable density)",
+    "Cartesian undersampling (uniform random)",
+    "Cartesian undersampling (equispaced)",
     "Phase-encode ghosting",
     "Segmented translation motion",
     "Translation motion",
@@ -135,6 +138,27 @@ def choose_distortion(name: str) -> BaseDistortion:
                 line_offset=1,
                 phase_error_radians=torch.pi / 2,
                 corrupted_line_scale=1.0,
+            )
+        case "Cartesian undersampling (variable density)":
+            return CartesianUndersampling(
+                keep_fraction=0.25,
+                center_fraction=0.125,
+                pattern="variable_density_random",
+                seed=42,
+            )
+        case "Cartesian undersampling (uniform random)":
+            return CartesianUndersampling(
+                keep_fraction=0.25,
+                center_fraction=0.125,
+                pattern="uniform_random",
+                seed=42,
+            )
+        case "Cartesian undersampling (equispaced)":
+            return CartesianUndersampling(
+                keep_fraction=0.25,
+                center_fraction=0.125,
+                pattern="equispaced",
+                seed=42,
             )
         case "Anisotropic LP":
             return AnisotropicResolutionReduction(

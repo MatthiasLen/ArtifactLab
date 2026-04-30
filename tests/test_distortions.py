@@ -10,6 +10,7 @@ import torch
 from mri_recon.distortions import (
     AnisotropicResolutionReduction,
     BaseDistortion,
+    CartesianUndersampling,
     DistortedKspaceMultiCoilMRI,
     GaussianKspaceBiasField,
     GaussianNoiseDistortion,
@@ -30,6 +31,7 @@ DISTORTIONS = [
     "Anisotropic LP",
     "Hann taper LP",
     "Kaiser taper LP",
+    "Cartesian undersampling",
     "Gaussian bias field",
     "Off-center anisotropic Gaussian bias field",
     "Phase-encode ghosting",
@@ -42,6 +44,7 @@ EXACT_OPERATOR_DISTORTIONS = {
     "None",
     "Isotropic LP",
     "Anisotropic LP",
+    "Cartesian undersampling",
     "Phase-encode ghosting",
     "Translation motion",
     "Segmented translation motion",
@@ -74,6 +77,12 @@ def choose_distortion(name):
                 radius_fraction=0.6,
                 transition_fraction=0.25,
                 beta=8.6,
+            )
+        case "Cartesian undersampling":
+            return CartesianUndersampling(
+                keep_fraction=0.25,
+                center_fraction=0.2,
+                seed=42,
             )
         case "Gaussian bias field":
             return GaussianKspaceBiasField(width_fraction=0.35, edge_gain=0.4)
@@ -584,3 +593,242 @@ def test_self_adjoint_multiplicative_mask_distortion_a_adjoint_equals_a(device):
     y = torch.randn((1, 2, 32, 32), device=device)
 
     assert torch.equal(distortion.A(y), distortion.A_adjoint(y))
+
+
+def test_cartesian_undersampling_rejects_invalid_keep_fraction(device):
+    """Verify that keep_fraction must be in (0, 1]."""
+    with pytest.raises(ValueError, match="keep_fraction must be in"):
+        CartesianUndersampling(keep_fraction=0.0)
+
+    with pytest.raises(ValueError, match="keep_fraction must be in"):
+        CartesianUndersampling(keep_fraction=1.5)
+
+
+def test_cartesian_undersampling_rejects_invalid_center_fraction(device):
+    """Verify that center_fraction must be in (0, 1]."""
+    with pytest.raises(ValueError, match="center_fraction must be in"):
+        CartesianUndersampling(keep_fraction=0.5, center_fraction=0.0)
+
+    with pytest.raises(ValueError, match="center_fraction must be in"):
+        CartesianUndersampling(keep_fraction=0.5, center_fraction=1.5)
+
+
+def test_cartesian_undersampling_rejects_center_fraction_exceeding_keep_fraction(device):
+    """Verify that center_fraction cannot exceed keep_fraction."""
+    with pytest.raises(ValueError, match="center_fraction.*must not exceed"):
+        CartesianUndersampling(keep_fraction=0.2, center_fraction=0.5)
+
+
+def test_cartesian_undersampling_rejects_invalid_axis(device):
+    """Verify that axis must be -2 or -3."""
+    with pytest.raises(ValueError, match="axis must be -2 or -3"):
+        CartesianUndersampling(axis=-1)
+
+    with pytest.raises(ValueError, match="axis must be -2 or -3"):
+        CartesianUndersampling(axis=0)
+
+
+def test_cartesian_undersampling_rejects_invalid_pattern(device):
+    """Verify that pattern must be one of the supported sampling strategies."""
+    with pytest.raises(ValueError, match="pattern must be one of"):
+        CartesianUndersampling(pattern="spiral")
+
+
+def test_cartesian_undersampling_identity_at_full_keep(device):
+    """Verify that keep_fraction=1.0 is the identity."""
+    distortion = CartesianUndersampling(keep_fraction=1.0)
+    y = torch.randn((1, 2, 64, 64), device=device)
+
+    y_distorted = distortion.A(y)
+
+    assert torch.equal(y_distorted, y)
+
+
+def test_cartesian_undersampling_default_center_fraction_leaves_peripheral_budget(device):
+    """Verify that the default ACS fraction is strictly smaller than keep_fraction."""
+    distortion = CartesianUndersampling(keep_fraction=0.3)
+
+    assert distortion.center_fraction == pytest.approx(0.15)
+    assert distortion.center_fraction < distortion.keep_fraction
+    assert distortion.pattern == "variable_density_random"
+
+
+def test_cartesian_undersampling_achieves_target_keep_rate(device):
+    """Verify that the mask achieves approximately the target keep_fraction."""
+    distortion = CartesianUndersampling(keep_fraction=0.25, center_fraction=0.15, seed=42)
+    shape = (1, 2, 64, 100)  # Use different sizes to test phase-encode and readout
+    mask = distortion._mask(shape, torch.device(device))
+
+    # Count the number of non-zero elements along the phase-encode axis (-2)
+    num_ones = torch.sum(mask, dim=-2)  # Sum along phase-encode axis
+    total_lines = shape[-2]
+    actual_keep_fraction = num_ones[0, 0, 0].item() / total_lines
+
+    # Allow 2-3% tolerance for rounding
+    assert abs(actual_keep_fraction - 0.25) < 0.03
+
+
+def test_cartesian_undersampling_preserves_center_acs_region(device):
+    """Verify that the center ACS region is fully sampled."""
+    distortion = CartesianUndersampling(keep_fraction=0.4, center_fraction=0.3, seed=42)
+    shape = (1, 2, 100, 100)
+    mask = distortion._mask(shape, torch.device(device))
+
+    # Extract the 1D mask along phase-encode axis
+    mask_1d = mask[0, 0, :, 0]
+
+    # Center region should be fully sampled (all ones)
+    total_lines = shape[-2]
+    center_lines = int(round(total_lines * 0.3))
+    center_start = (total_lines - center_lines) // 2
+    center_end = center_start + center_lines
+
+    assert torch.all(mask_1d[center_start:center_end] == 1.0)
+
+
+def test_cartesian_undersampling_mask_is_deterministic_with_seed(device):
+    """Verify that the mask is reproducible with the same seed."""
+    distortion1 = CartesianUndersampling(keep_fraction=0.3, seed=123)
+    distortion2 = CartesianUndersampling(keep_fraction=0.3, seed=123)
+
+    shape = (1, 2, 32, 32)
+    mask1 = distortion1._mask(shape, torch.device(device))
+    mask2 = distortion2._mask(shape, torch.device(device))
+
+    assert torch.equal(mask1, mask2)
+
+
+def test_cartesian_undersampling_mask_differs_with_different_seed(device):
+    """Verify that different seeds produce different masks."""
+    # Use a larger keep_fraction so peripheral region has samples to randomize
+    distortion1 = CartesianUndersampling(keep_fraction=0.5, center_fraction=0.2, seed=123)
+    distortion2 = CartesianUndersampling(keep_fraction=0.5, center_fraction=0.2, seed=456)
+
+    shape = (1, 2, 64, 64)
+    mask1 = distortion1._mask(shape, torch.device(device))
+    mask2 = distortion2._mask(shape, torch.device(device))
+
+    # Masks should be different (with very high probability)
+    assert not torch.equal(mask1, mask2)
+
+
+def test_cartesian_undersampling_variable_density_biases_toward_center(device):
+    """Verify that variable-density sampling favors lines closer to k-space center."""
+    shape = (1, 2, 128, 64)
+    uniform = CartesianUndersampling(
+        keep_fraction=0.25,
+        center_fraction=0.125,
+        pattern="uniform_random",
+        seed=7,
+    )
+    variable_density = CartesianUndersampling(
+        keep_fraction=0.25,
+        center_fraction=0.125,
+        pattern="variable_density_random",
+        seed=7,
+    )
+
+    uniform_mask = uniform._mask(shape, torch.device(device))[0, 0, :, 0]
+    variable_density_mask = variable_density._mask(shape, torch.device(device))[0, 0, :, 0]
+    center = 0.5 * (shape[-2] - 1)
+    distances = torch.abs(torch.arange(shape[-2], dtype=torch.float32) - center)
+
+    uniform_peripheral_mean = distances[(uniform_mask == 1.0) & (distances > 0)].mean()
+    variable_density_peripheral_mean = distances[
+        (variable_density_mask == 1.0) & (distances > 0)
+    ].mean()
+
+    assert variable_density_peripheral_mean < uniform_peripheral_mean
+
+
+def test_cartesian_undersampling_equispaced_pattern_is_seed_independent(device):
+    """Verify that the equispaced pattern is deterministic and does not depend on seed."""
+    shape = (1, 2, 64, 64)
+    distortion1 = CartesianUndersampling(
+        keep_fraction=0.25,
+        center_fraction=0.125,
+        pattern="equispaced",
+        seed=123,
+    )
+    distortion2 = CartesianUndersampling(
+        keep_fraction=0.25,
+        center_fraction=0.125,
+        pattern="equispaced",
+        seed=456,
+    )
+
+    mask1 = distortion1._mask(shape, torch.device(device))
+    mask2 = distortion2._mask(shape, torch.device(device))
+
+    assert torch.equal(mask1, mask2)
+
+
+def test_cartesian_undersampling_mask_caching(device):
+    """Verify that the mask is cached and reused for the same shape."""
+    distortion = CartesianUndersampling(keep_fraction=0.3, seed=42)
+    shape = (1, 2, 32, 32)
+
+    mask1 = distortion._mask(shape, torch.device(device))
+    mask2 = distortion._mask(shape, torch.device(device))
+
+    # Should be the same object (cached)
+    assert mask1.data_ptr() == mask2.data_ptr()
+
+
+def test_cartesian_undersampling_is_self_adjoint(device):
+    """Verify adjointness property for CartesianUndersampling."""
+    distortion = CartesianUndersampling(keep_fraction=0.3, seed=42)
+    x = torch.randn((1, 2, 32, 32), device=device)
+    y = torch.randn((1, 2, 32, 32), device=device)
+
+    # Test adjointness: <Ax, y> = <x, A*y>
+    lhs = torch.sum(distortion.A(x) * y)
+    rhs = torch.sum(x * distortion.A_adjoint(y))
+
+    assert torch.allclose(lhs, rhs, atol=1e-5)
+
+
+def test_cartesian_undersampling_zeros_undersampled_lines(device):
+    """Verify that undersampled lines (mask=0) result in zero k-space."""
+    distortion = CartesianUndersampling(keep_fraction=0.25, center_fraction=0.2, seed=42)
+    shape = (1, 2, 64, 64)
+    y = torch.ones(shape, device=device)  # All ones
+
+    y_distorted = distortion.A(y)
+    mask = distortion._mask(shape, torch.device(device))
+
+    # Expand mask to match y shape for comparison
+    expanded_mask = mask.expand(shape)
+
+    # Undersampled lines should be zero
+    zero_mask = expanded_mask == 0
+    assert torch.all(y_distorted[zero_mask] == 0.0)
+
+    # Sampled lines should be unchanged
+    sampled_mask = expanded_mask == 1
+    assert torch.all(y_distorted[sampled_mask] == y[sampled_mask])
+
+
+def test_cartesian_undersampling_works_with_3d_tensor(device):
+    """Verify that CartesianUndersampling works with 5D tensors (3D MRI)."""
+    distortion = CartesianUndersampling(keep_fraction=0.3, center_fraction=0.25, seed=42, axis=-3)
+    y = torch.randn((1, 2, 8, 32, 32), device=device)  # 3D k-space
+
+    y_distorted = distortion.A(y)
+
+    assert y_distorted.shape == y.shape
+
+
+def test_cartesian_undersampling_with_distorted_kspace_physics(device):
+    """Verify that CartesianUndersampling works with DistortedKspaceMultiCoilMRI."""
+    distortion = CartesianUndersampling(keep_fraction=0.3, seed=42)
+    physics = DistortedKspaceMultiCoilMRI(
+        distortion=distortion,
+        img_size=(1, 2, 32, 32),
+        device=device,
+    )
+    x = torch.randn((1, 2, 32, 32), device=device)
+
+    y = physics.A(x)
+
+    assert y.shape == (1, 2, 32, 32)
