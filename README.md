@@ -16,6 +16,7 @@ MRI reconstruction playground for the MRI Metrics project.
 | `TVPDHGReconstructor` | `tv-pdhg` | Variational iterative | Primal-dual hybrid gradient / Chambolle-Pock optimization with total-variation regularization. |
 | `RAMReconstructor` | `ram` | Deep learning | Wrapper around the DeepInverse RAM model, with input normalization based on the adjoint reconstruction. |
 | `DeepImagePriorReconstructor` | `dip` | Deep learning | Deep Image Prior reconstruction using an untrained convolutional decoder optimized at inference time. |
+| `FastMRISinglecoilUnetReconstructor` | `unet` | Deep learning | Wrapper around the pretrained fastMRI single-coil U-Net, returning a magnitude-based reconstruction with a zero imaginary channel. |
 
 ## Implemented Distortions
 
@@ -28,6 +29,7 @@ MRI reconstruction playground for the MRI Metrics project.
 | `HannTaperResolutionReduction` | `Hann taper LP` | Resolution loss | Applies a circular low-pass mask with a raised-cosine transition band to soften the cutoff. |
 | `KaiserTaperResolutionReduction` | `Kaiser taper LP` | Resolution loss | Applies a circular low-pass mask with a Kaiser transition band for adjustable cutoff smoothness. |
 | `CartesianUndersampling` | `Cartesian undersampling` | Acquisition undersampling | Simulates Cartesian acquisition undersampling with optional contiguous ACS center retention plus uniform-random, variable-density-random, or equispaced peripheral sampling. |
+| `RadialHighPassEmphasisDistortion` | `Radial high-pass emphasis` | Sharpening | Applies a radial gain mask that increasingly boosts high-frequency k-space content toward the sampled edge. |
 | `GaussianKspaceBiasField` | `Gaussian bias field` | Intensity non-uniformity | Applies a centered smooth multiplicative Gaussian gain field in k-space. |
 | `OffCenterAnisotropicGaussianKspaceBiasField` | `Off-center anisotropic Gaussian bias field` | Intensity non-uniformity | Applies an off-center anisotropic Gaussian gain field in k-space with separate widths along `kx` and `ky`. |
 | `GaussianNoiseDistortion` | `Gaussian noise` | Noise | Adds independent zero-mean Gaussian noise to the stored real and imaginary k-space channels. |

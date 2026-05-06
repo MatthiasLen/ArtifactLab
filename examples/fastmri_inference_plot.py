@@ -21,7 +21,7 @@ from mri_recon.reconstruction import *
 REPORT_DIR = Path("reports") / "fastmri_inference_plot"
 REPORT_DIR.mkdir(parents=True, exist_ok=True)
 ALGORITHMS = [
-    "zero-filled",
+    # "zero-filled",
     # "conjugate-gradient",
     # "ram",
     # "dip",
@@ -29,6 +29,7 @@ ALGORITHMS = [
     # "wavelet-fista",
     # "tv-fista",
     # "tv-pdhg",
+    # "unet",  # will trigger download of pretrained weights if not already present
 ]
 DISTORTIONS = [
     "Cartesian undersampling (variable density)",
@@ -47,6 +48,7 @@ DISTORTIONS = [
     "Kaiser taper LP",
     "Gaussian noise",
     "Isotropic LP",
+    "Radial high-pass emphasis"
 ]
 METRICS = [
     "PSNR",
@@ -128,6 +130,8 @@ def choose_algorithm(
             return TVPDHGReconstructor(n_iter=100, verbose=verbose)
         case "wavelet-fista":
             return WaveletFISTAReconstructor(n_iter=100, device=device, verbose=verbose)
+        case "unet":
+            return FastMRISinglecoilUnetReconstructor(device=device)
         case _:
             raise ValueError(f"Unknown algorithm {name!r}")
 
@@ -192,6 +196,8 @@ def choose_distortion(name: str) -> BaseDistortion:
                 transition_fraction=0.4,
                 beta=8.6,
             )
+        case "Radial high-pass emphasis":
+            return RadialHighPassEmphasisDistortion(alpha=0.4)
         case "Isotropic LP":
             return IsotropicResolutionReduction(radius_fraction=0.1)
         case "Off-center anisotropic Gaussian bias field":

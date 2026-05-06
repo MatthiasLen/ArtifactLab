@@ -16,5 +16,6 @@ from .resolution import (
     HannTaperResolutionReduction,
     IsotropicResolutionReduction,
     KaiserTaperResolutionReduction,
+    RadialHighPassEmphasisDistortion,
 )
 from .undersampling import CartesianUndersampling

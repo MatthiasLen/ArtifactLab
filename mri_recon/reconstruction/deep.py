@@ -1,5 +1,10 @@
-import torch
+from pathlib import Path
+
 import deepinv as dinv
+import torch
+
+from ._fastmri_unet import Unet
+from ..utils import download_file_with_sha256, matches_sha256
 
 
 class RAMReconstructor(dinv.models.Reconstructor):
@@ -78,3 +83,83 @@ class DeepImagePriorReconstructor(dinv.models.Reconstructor):
 
     def forward(self, y, physics):
         return self.model(y, physics)
+
+
+class FastMRISinglecoilUnetReconstructor(dinv.models.Reconstructor):
+    """
+    Wrapper for pretrained UNet from FastMRI singlecoil knee challenge.
+
+    Note: this model was trained for accelerated MRI reconstruction and may not have good performance on other degradations.
+
+    Note: this model discards complex information and only returns the magnitude image.
+
+    NOTE: this model was trained on both train+val splits of the challenge (i.e. trained on singlecoil_train, singlecoil_val).
+
+    The pretrained fastMRI model expects magnitude images that are normalized per slice,
+    so this wrapper matches that preprocessing and rescales the output back to the
+    original adjoint-image intensity range.
+
+    See https://github.com/facebookresearch/fastMRI/tree/main/fastmri_examples for more details.
+    """
+
+    MODEL_URL = (
+        "https://dl.fbaipublicfiles.com/fastMRI/trained_models/unet/"
+        "knee_sc_leaderboard_state_dict.pt"
+    )
+    MODEL_SHA256 = "8f41f67d8eab2cca31ffff632a733a8712b1171c11f13e95b6f90fdf63399f9e"
+    MODEL_FILENAME = "knee_sc_leaderboard_state_dict.pt"
+    UNET_KWARGS = {
+        "in_chans": 1,
+        "out_chans": 1,
+        "chans": 256,
+        "num_pool_layers": 4,
+        "drop_prob": 0.0,
+    }
+
+    def __init__(self, device: torch.device = None, state_dict_file: str = None) -> None:
+        super().__init__()
+
+        if device is None:
+            device = torch.device("cpu")
+        self.device = device
+
+        self.model = Unet(**self.UNET_KWARGS)
+
+        state_dict_path = (
+            Path(state_dict_file).expanduser()
+            if state_dict_file is not None
+            else Path(__file__).resolve().parents[2] / self.MODEL_FILENAME
+        )
+
+        if state_dict_file is None:
+            if not matches_sha256(state_dict_path, self.MODEL_SHA256):
+                download_file_with_sha256(
+                    self.MODEL_URL,
+                    state_dict_path,
+                    self.MODEL_SHA256,
+                    label="FastMRI UNet checkpoint",
+                )
+        elif not state_dict_path.exists():
+            raise FileNotFoundError(f"Checkpoint not found: {state_dict_path}")
+
+        self.model.load_state_dict(
+            torch.load(state_dict_path, map_location=device, weights_only=True)
+        )
+        self.model.eval()
+        self.model.to(device)
+
+    def forward(self, y: torch.Tensor, physics: dinv.physics.Physics) -> torch.Tensor:
+        x_in = physics.A_adjoint(y)
+
+        x_in = dinv.utils.complex_abs(x_in, keepdim=True)
+
+        # Match the fastMRI normalization used for training, then rescale the
+        # predicted magnitude image back to the original adjoint-image intensity range.
+        mu = x_in.mean(dim=(-2, -1), keepdim=True)
+        std = x_in.std(dim=(-2, -1), keepdim=True) + 1e-8
+        x_in = (x_in - mu) / std
+
+        with torch.no_grad():
+            out = self.model(x_in) * std + mu  # (B, 1, H, W)
+
+        return torch.cat([out, torch.zeros_like(out)], dim=1)

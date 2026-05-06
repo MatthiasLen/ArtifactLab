@@ -19,6 +19,7 @@ from mri_recon.distortions import (
     KaiserTaperResolutionReduction,
     OffCenterAnisotropicGaussianKspaceBiasField,
     PhaseEncodeGhostingDistortion,
+    RadialHighPassEmphasisDistortion,
     RotationalMotionDistortion,
     SegmentedTranslationMotionDistortion,
     SelfAdjointMultiplicativeMaskDistortion,
@@ -32,6 +33,7 @@ DISTORTIONS = [
     "Hann taper LP",
     "Kaiser taper LP",
     "Cartesian undersampling",
+    "Radial high-pass emphasis",
     "Gaussian bias field",
     "Off-center anisotropic Gaussian bias field",
     "Phase-encode ghosting",
@@ -84,6 +86,8 @@ def choose_distortion(name):
                 center_fraction=0.2,
                 seed=42,
             )
+        case "Radial high-pass emphasis":
+            return RadialHighPassEmphasisDistortion(alpha=0.4)
         case "Gaussian bias field":
             return GaussianKspaceBiasField(width_fraction=0.35, edge_gain=0.4)
         case "Off-center anisotropic Gaussian bias field":
@@ -256,6 +260,44 @@ def test_kaiser_taper_resolution_reduction_zero_transition_matches_hard_cutoff(d
     y = torch.randn((1, 2, 64, 64), device=device)
 
     assert torch.equal(smooth.A(y), hard.A(y))
+
+
+def test_radial_high_pass_emphasis_distortion_boosts_edges_more_than_center(device):
+    distortion = RadialHighPassEmphasisDistortion(alpha=0.4)
+    shape = (1, 2, 33, 33)
+    center_y = shape[-2] // 2
+    center_x = shape[-1] // 2
+
+    mask = distortion._mask(shape, torch.device(device))
+
+    assert mask[center_y, center_x] == pytest.approx(1.0)
+    assert mask[0, 0] == pytest.approx(1.0 + distortion.alpha)
+    assert torch.all(mask >= 1.0)
+    assert mask[center_y, center_x + 4] == pytest.approx(1.0)
+    assert torch.any((mask > 1.0) & (mask < 1.0 + distortion.alpha))
+
+
+def test_radial_high_pass_emphasis_distortion_zero_alpha_is_identity(device):
+    distortion = RadialHighPassEmphasisDistortion(alpha=0.0)
+    y = torch.randn((1, 2, 64, 64), device=device)
+
+    assert torch.equal(distortion.A(y), y)
+
+
+def test_radial_high_pass_emphasis_distortion_respects_custom_band(device):
+    distortion = RadialHighPassEmphasisDistortion(
+        alpha=0.4,
+        boost_start_radius=0.7,
+        boost_end_radius=0.95,
+    )
+    shape = (1, 2, 65, 65)
+    center_y = shape[-2] // 2
+    center_x = shape[-1] // 2
+
+    mask = distortion._mask(shape, torch.device(device))
+
+    assert mask[center_y, center_x + 12] == pytest.approx(1.0)
+    assert mask[0, 0] == pytest.approx(1.0 + distortion.alpha)
 
 
 def test_centered_isotropic_bias_matches_anisotropic_special_case(device):
@@ -564,6 +606,7 @@ def test_segmented_translation_motion_keeps_zero_motion_segment_and_modulates_sh
         AnisotropicResolutionReduction,
         HannTaperResolutionReduction,
         KaiserTaperResolutionReduction,
+        RadialHighPassEmphasisDistortion,
     ],
 )
 def test_resolution_reduction_classes_inherit_from_self_adjoint_multiplicative_mask(
