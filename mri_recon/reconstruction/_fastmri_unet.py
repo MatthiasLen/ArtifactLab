@@ -1,8 +1,9 @@
 """
 Copyright (c) Facebook, Inc. and its affiliates.
 
-This source code is licensed under the MIT license found in the
-LICENSE file in the root directory of this source tree.
+This file is derived from the fastMRI project and is distributed under the
+MIT license. See the upstream fastMRI repository for the corresponding
+license text.
 """
 
 import torch
