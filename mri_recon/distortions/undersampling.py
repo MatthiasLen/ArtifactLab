@@ -29,9 +29,10 @@ class CartesianUndersampling(SelfAdjointMultiplicativeMaskDistortion):
     :param float keep_fraction: Fraction of phase-encode lines to keep in
         ``(0, 1]``. For example, 0.25 keeps 25% of phase-encode lines.
     :param float center_fraction: Fraction of phase-encode lines reserved for
-        the contiguous, fully-sampled ACS region in ``(0, 1]``. Defaults to
+        the contiguous, fully-sampled ACS region in ``[0, 1]``. Defaults to
         ``0.5 * keep_fraction``, leaving part of the acquisition budget for
-        randomized peripheral line sampling.
+        randomized peripheral line sampling. Set to ``0`` to sample without a
+        guaranteed ACS block.
     :param str pattern: Peripheral sampling pattern. Supported values are
         ``"uniform_random"``, ``"variable_density_random"``, and
         ``"equispaced"``. Defaults to ``"variable_density_random"``.
@@ -66,8 +67,8 @@ class CartesianUndersampling(SelfAdjointMultiplicativeMaskDistortion):
             # Reserve half of the kept lines for a contiguous ACS block and
             # leave the remainder for peripheral sampling.
             center_fraction = 0.5 * keep_fraction
-        elif not 0.0 < center_fraction <= 1.0:
-            raise ValueError(f"center_fraction must be in (0, 1], got {center_fraction}")
+        elif not 0.0 <= center_fraction <= 1.0:
+            raise ValueError(f"center_fraction must be in [0, 1], got {center_fraction}")
 
         if center_fraction > keep_fraction:
             raise ValueError(
@@ -88,8 +89,8 @@ class CartesianUndersampling(SelfAdjointMultiplicativeMaskDistortion):
         """Generate a binary Cartesian undersampling mask.
 
         The mask is applied along the specified axis (phase-encode by default).
-        It keeps a contiguous center region fully sampled and randomly undersamples
-        the periphery to achieve the desired keep_fraction.
+        It keeps a contiguous center region fully sampled when requested and
+        randomly undersamples the periphery to achieve the desired keep_fraction.
 
         :param tuple[int, ...] shape: k-space tensor shape.
         :param torch.device device: Device for the mask.
@@ -140,9 +141,9 @@ class CartesianUndersampling(SelfAdjointMultiplicativeMaskDistortion):
         :returns: 1D binary mask of shape (axis_size,).
         :rtype: torch.Tensor
         """
-        # Calculate number of lines to keep and center region size
+        # Calculate number of lines to keep and center region size.
         num_keep = max(1, int(round(axis_size * self.keep_fraction)))
-        num_center = max(1, int(round(axis_size * self.center_fraction)))
+        num_center = int(round(axis_size * self.center_fraction))
 
         # Ensure center is not larger than total kept lines
         num_center = min(num_center, num_keep)
@@ -150,10 +151,11 @@ class CartesianUndersampling(SelfAdjointMultiplicativeMaskDistortion):
         # Initialize mask (all zeros)
         mask = torch.zeros(axis_size, dtype=torch.float32)
 
-        # Keep the contiguous center region (ACS)
+        # Keep the contiguous center region (ACS) when requested.
         center_start = (axis_size - num_center) // 2
         center_end = center_start + num_center
-        mask[center_start:center_end] = 1.0
+        if num_center > 0:
+            mask[center_start:center_end] = 1.0
 
         peripheral_indices = self._peripheral_indices(center_start, center_end, axis_size)
 

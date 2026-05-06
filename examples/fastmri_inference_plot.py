@@ -33,7 +33,9 @@ ALGORITHMS = [
 DISTORTIONS = [
     "Cartesian undersampling (variable density)",
     "Cartesian undersampling (uniform random)",
+    "Cartesian undersampling (uniform random, zero ACS)",
     "Cartesian undersampling (equispaced)",
+    "Cartesian undersampling (equispaced, zero ACS)",
     "Phase-encode ghosting",
     "Segmented translation motion",
     "Translation motion",
@@ -153,10 +155,24 @@ def choose_distortion(name: str) -> BaseDistortion:
                 pattern="uniform_random",
                 seed=42,
             )
+        case "Cartesian undersampling (uniform random, zero ACS)":
+            return CartesianUndersampling(
+                keep_fraction=0.5,
+                center_fraction=0.0,
+                pattern="uniform_random",
+                seed=42,
+            )
         case "Cartesian undersampling (equispaced)":
             return CartesianUndersampling(
                 keep_fraction=0.25,
                 center_fraction=0.125,
+                pattern="equispaced",
+                seed=42,
+            )
+        case "Cartesian undersampling (equispaced, zero ACS)":
+            return CartesianUndersampling(
+                keep_fraction=0.5,
+                center_fraction=0.0,
                 pattern="equispaced",
                 seed=42,
             )

@@ -605,9 +605,9 @@ def test_cartesian_undersampling_rejects_invalid_keep_fraction(device):
 
 
 def test_cartesian_undersampling_rejects_invalid_center_fraction(device):
-    """Verify that center_fraction must be in (0, 1]."""
+    """Verify that center_fraction must be in [0, 1]."""
     with pytest.raises(ValueError, match="center_fraction must be in"):
-        CartesianUndersampling(keep_fraction=0.5, center_fraction=0.0)
+        CartesianUndersampling(keep_fraction=0.5, center_fraction=-0.1)
 
     with pytest.raises(ValueError, match="center_fraction must be in"):
         CartesianUndersampling(keep_fraction=0.5, center_fraction=1.5)
@@ -684,6 +684,22 @@ def test_cartesian_undersampling_preserves_center_acs_region(device):
     center_end = center_start + center_lines
 
     assert torch.all(mask_1d[center_start:center_end] == 1.0)
+
+
+def test_cartesian_undersampling_zero_center_fraction_has_no_forced_acs(device):
+    """Verify that center_fraction=0 does not force a contiguous ACS block."""
+    distortion = CartesianUndersampling(
+        keep_fraction=0.5,
+        center_fraction=0.0,
+        pattern="equispaced",
+    )
+    shape = (1, 2, 64, 64)
+    mask_1d = distortion._mask(shape, torch.device(device))[0, 0, :, 0]
+
+    center_slice = mask_1d[30:34]
+
+    assert not torch.all(center_slice == 1.0)
+    assert torch.sum(mask_1d).item() == 32
 
 
 def test_cartesian_undersampling_mask_is_deterministic_with_seed(device):
@@ -763,6 +779,20 @@ def test_cartesian_undersampling_equispaced_pattern_is_seed_independent(device):
     assert torch.equal(mask1, mask2)
 
 
+def test_cartesian_undersampling_zero_acs_equispaced_half_keep_samples_every_second_line(device):
+    """Verify equispaced half sampling with no ACS selects every second line."""
+    distortion = CartesianUndersampling(
+        keep_fraction=0.5,
+        center_fraction=0.0,
+        pattern="equispaced",
+    )
+
+    mask_1d = distortion._mask((1, 2, 64, 64), torch.device(device))[0, 0, :, 0]
+    sampled_indices = torch.where(mask_1d == 1.0)[0]
+
+    assert torch.equal(sampled_indices, torch.arange(1, 64, 2, device=sampled_indices.device))
+
+
 def test_cartesian_undersampling_mask_caching(device):
     """Verify that the mask is cached and reused for the same shape."""
     distortion = CartesianUndersampling(keep_fraction=0.3, seed=42)
@@ -782,6 +812,18 @@ def test_cartesian_undersampling_is_self_adjoint(device):
     y = torch.randn((1, 2, 32, 32), device=device)
 
     # Test adjointness: <Ax, y> = <x, A*y>
+    lhs = torch.sum(distortion.A(x) * y)
+    rhs = torch.sum(x * distortion.A_adjoint(y))
+
+    assert torch.allclose(lhs, rhs, atol=1e-5)
+
+
+def test_cartesian_undersampling_zero_center_fraction_is_self_adjoint(device):
+    """Verify adjointness still holds when no ACS block is forced."""
+    distortion = CartesianUndersampling(keep_fraction=0.3, center_fraction=0.0, seed=42)
+    x = torch.randn((1, 2, 32, 32), device=device)
+    y = torch.randn((1, 2, 32, 32), device=device)
+
     lhs = torch.sum(distortion.A(x) * y)
     rhs = torch.sum(x * distortion.A_adjoint(y))
 
