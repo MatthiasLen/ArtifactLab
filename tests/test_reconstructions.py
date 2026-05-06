@@ -12,6 +12,7 @@ from mri_recon.reconstruction.deep import (
     RAMReconstructor,
     DeepImagePriorReconstructor,
     FastMRISinglecoilUnetReconstructor,
+    OASISSinglecoilUnetReconstructor,
 )
 from mri_recon.reconstruction.classic import (
     ZeroFilledReconstructor,
@@ -108,6 +109,37 @@ def test_fastmri_singlecoil_unet_reconstructor(device, tmp_path, monkeypatch):
     model = FastMRISinglecoilUnetReconstructor(
         device=device,
         state_dict_file=str(weights_path),
+    )
+    physics = DistortedKspaceMultiCoilMRI(
+        img_size=(1, 2, *x.shape[-2:]), coil_maps=1, device=device
+    )
+
+    y = physics(x)
+    x_hat = model(y, physics)
+
+    assert x_hat.shape == x.shape
+    assert torch.allclose(x_hat[:, 1], torch.zeros_like(x_hat[:, 1]))
+
+
+def test_oasis_singlecoil_unet_reconstructor_loads_lightning_checkpoint(device, tmp_path):
+    """
+    Test the OASIS UNet reconstructor with a Lightning-style checkpoint.
+    """
+    weights_path = tmp_path / "oasis_unet_test_weights.ckpt"
+    state_dict = Unet(**OASISSinglecoilUnetReconstructor.UNET_KWARGS).state_dict()
+    torch.save(
+        {"state_dict": {f"unet.{key}": value for key, value in state_dict.items()}},
+        weights_path,
+    )
+
+    x = dinv.utils.load_example(
+        "butterfly.png", img_size=(32, 32), grayscale=True, resize_mode="resize", device=device
+    )
+    x = torch.cat([x, torch.zeros_like(x)], dim=1)
+
+    model = OASISSinglecoilUnetReconstructor(
+        checkpoint_file=str(weights_path),
+        device=device,
     )
     physics = DistortedKspaceMultiCoilMRI(
         img_size=(1, 2, *x.shape[-2:]), coil_maps=1, device=device

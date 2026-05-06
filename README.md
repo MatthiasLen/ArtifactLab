@@ -17,6 +17,7 @@ Reconstruction playground for the MRI Recon Metrics Reloaded workgroup.
 | `RAMReconstructor` | `ram` | Deep learning | Wrapper around the DeepInverse RAM model, with input normalization based on the adjoint reconstruction. |
 | `DeepImagePriorReconstructor` | `dip` | Deep learning | Deep Image Prior reconstruction using an untrained convolutional decoder optimized at inference time. |
 | `FastMRISinglecoilUnetReconstructor` | `unet` | Deep learning | Wrapper around the pretrained fastMRI single-coil U-Net, returning a magnitude-based reconstruction with a zero imaginary channel. |
+| `OASISSinglecoilUnetReconstructor` | `oasis-unet` | Deep learning | Wrapper around a trained OASIS single-coil U-Net checkpoint, reusing the shared fastMRI-derived U-Net module. |
 
 ## Implemented Distortions
 
@@ -55,6 +56,16 @@ On Windows and Linux, `uv sync` installs the CUDA 12.8 PyTorch wheels. On macOS,
 uv sync
 uv run python -c "import torch; print(torch.__version__, torch.cuda.is_available(), torch.version.cuda)"
 ```
+
+## OASIS Inference Example
+
+Run the OASIS plotting example with a local OASIS root folder. By default, it uses the packaged split and checkpoint manifest under `reconstruction_only/`.
+
+```bash
+python examples/OASIS_inference_plot.py --source /path/to/oasis_cross_sectional_data --acceleration 4
+```
+
+Pass `--checkpoint /path/to/checkpoint.ckpt` to use a different trained OASIS U-Net checkpoint.
 
 ## Pre-commit
 
