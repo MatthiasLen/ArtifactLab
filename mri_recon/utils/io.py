@@ -31,13 +31,14 @@ def download_file_with_sha256(
     print(f"Downloading {label} from {url} to {destination}. This may take a moment.")
 
     report_interval = report_interval_mb * 1024 * 1024
+    tmp_path = None
 
-    with tempfile.NamedTemporaryFile(
-        mode="wb", delete=False, dir=destination.parent, suffix=".tmp"
-    ) as handle:
-        tmp_path = Path(handle.name)
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="wb", delete=False, dir=destination.parent, suffix=".tmp"
+        ) as handle:
+            tmp_path = Path(handle.name)
 
-        try:
             with urlopen(url, timeout=30) as response:
                 total_size = response.headers.get("Content-Length")
                 total_size = int(total_size) if total_size is not None else None
@@ -63,11 +64,12 @@ def download_file_with_sha256(
                             )
                         next_report += report_interval
 
-            if not matches_sha256(tmp_path, expected_sha256):
-                raise ValueError(f"Downloaded file failed SHA256 verification: {destination}")
+        if not matches_sha256(tmp_path, expected_sha256):
+            raise ValueError(f"Downloaded file failed SHA256 verification: {destination}")
 
-            tmp_path.replace(destination)
-            print(f"{label.capitalize()} saved to {destination}.")
-        except Exception:
+        tmp_path.replace(destination)
+        print(f"{label.capitalize()} saved to {destination}.")
+    except Exception:
+        if tmp_path is not None:
             tmp_path.unlink(missing_ok=True)
-            raise
+        raise
