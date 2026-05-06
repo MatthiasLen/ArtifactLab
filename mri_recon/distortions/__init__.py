@@ -16,4 +16,5 @@ from .resolution import (
     HannTaperResolutionReduction,
     IsotropicResolutionReduction,
     KaiserTaperResolutionReduction,
+    RadialHighPassEmphasisDistortion,
 )
