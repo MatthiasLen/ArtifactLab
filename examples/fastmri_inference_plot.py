@@ -29,21 +29,26 @@ ALGORITHMS = [
     # "wavelet-fista",
     # "tv-fista",
     # "tv-pdhg",
-    "unet",  # will trigger download of pretrained weights if not already present
+    # "unet",  # will trigger download of pretrained weights if not already present
 ]
 DISTORTIONS = [
-    # "Phase-encode ghosting",
-    # "Segmented translation motion",
-    # "Translation motion",
-    # "Rotational motion",
-    # "Off-center anisotropic Gaussian bias field",
-    # "Gaussian bias field",
-    # "Anisotropic LP",
-    # "Hann taper LP",
-    # "Kaiser taper LP",
+    "Cartesian undersampling (variable density)",
+    "Cartesian undersampling (uniform random)",
+    "Cartesian undersampling (uniform random, zero ACS)",
+    "Cartesian undersampling (equispaced)",
+    "Cartesian undersampling (equispaced, zero ACS)",
+    "Phase-encode ghosting",
+    "Segmented translation motion",
+    "Translation motion",
+    "Rotational motion",
+    "Off-center anisotropic Gaussian bias field",
+    "Gaussian bias field",
+    "Anisotropic LP",
+    "Hann taper LP",
+    "Kaiser taper LP",
+    "Gaussian noise",
+    "Isotropic LP",
     "Radial high-pass emphasis",
-    # "Gaussian noise",
-    # "Isotropic LP",
 ]
 METRICS = [
     "PSNR",
@@ -139,6 +144,41 @@ def choose_distortion(name: str) -> BaseDistortion:
                 line_offset=1,
                 phase_error_radians=torch.pi / 2,
                 corrupted_line_scale=1.0,
+            )
+        case "Cartesian undersampling (variable density)":
+            return CartesianUndersampling(
+                keep_fraction=0.25,
+                center_fraction=0.125,
+                pattern="variable_density_random",
+                seed=42,
+            )
+        case "Cartesian undersampling (uniform random)":
+            return CartesianUndersampling(
+                keep_fraction=0.25,
+                center_fraction=0.125,
+                pattern="uniform_random",
+                seed=42,
+            )
+        case "Cartesian undersampling (uniform random, zero ACS)":
+            return CartesianUndersampling(
+                keep_fraction=0.5,
+                center_fraction=0.0,
+                pattern="uniform_random",
+                seed=42,
+            )
+        case "Cartesian undersampling (equispaced)":
+            return CartesianUndersampling(
+                keep_fraction=0.25,
+                center_fraction=0.125,
+                pattern="equispaced",
+                seed=42,
+            )
+        case "Cartesian undersampling (equispaced, zero ACS)":
+            return CartesianUndersampling(
+                keep_fraction=0.5,
+                center_fraction=0.0,
+                pattern="equispaced",
+                seed=42,
             )
         case "Anisotropic LP":
             return AnisotropicResolutionReduction(
