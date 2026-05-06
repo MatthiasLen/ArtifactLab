@@ -1,12 +1,10 @@
-import hashlib
-import tempfile
 from pathlib import Path
-from urllib.request import urlopen
 
 import deepinv as dinv
 import torch
 
 from ._fastmri_unet import Unet
+from ..utils import download_file_with_sha256, matches_sha256
 
 
 class RAMReconstructor(dinv.models.Reconstructor):
@@ -134,8 +132,13 @@ class FastMRISinglecoilUnetReconstructor(dinv.models.Reconstructor):
         )
 
         if state_dict_file is None:
-            if not self._matches_sha256(state_dict_path, self.MODEL_SHA256):
-                self._download_model(self.MODEL_URL, state_dict_path, self.MODEL_SHA256)
+            if not matches_sha256(state_dict_path, self.MODEL_SHA256):
+                download_file_with_sha256(
+                    self.MODEL_URL,
+                    state_dict_path,
+                    self.MODEL_SHA256,
+                    label="FastMRI UNet checkpoint",
+                )
         elif not state_dict_path.exists():
             raise FileNotFoundError(f"Checkpoint not found: {state_dict_path}")
 
@@ -144,39 +147,6 @@ class FastMRISinglecoilUnetReconstructor(dinv.models.Reconstructor):
         )
         self.model.eval()
         self.model.to(device)
-
-    @staticmethod
-    def _matches_sha256(path: Path, expected_sha256: str) -> bool:
-        if not path.exists():
-            return False
-
-        digest = hashlib.sha256()
-        with path.open("rb") as handle:
-            for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-                digest.update(chunk)
-        return digest.hexdigest() == expected_sha256
-
-    @classmethod
-    def _download_model(cls, url: str, fname: Path, expected_sha256: str) -> None:
-        fname.parent.mkdir(parents=True, exist_ok=True)
-
-        with tempfile.NamedTemporaryFile(
-            mode="wb", delete=False, dir=fname.parent, suffix=".tmp"
-        ) as handle:
-            tmp_path = Path(handle.name)
-
-            try:
-                with urlopen(url, timeout=30) as response:
-                    for chunk in iter(lambda: response.read(1024 * 1024), b""):
-                        handle.write(chunk)
-
-                if not cls._matches_sha256(tmp_path, expected_sha256):
-                    raise ValueError(f"Downloaded checkpoint failed SHA256 verification: {fname}")
-
-                tmp_path.replace(fname)
-            except Exception:
-                tmp_path.unlink(missing_ok=True)
-                raise
 
     def forward(self, y: torch.Tensor, physics: dinv.physics.Physics) -> torch.Tensor:
         x_in = physics.A_adjoint(y)
