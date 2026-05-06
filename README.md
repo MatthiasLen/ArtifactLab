@@ -34,7 +34,8 @@ MRI reconstruction playground for the MRI Metrics project.
 | `OffCenterAnisotropicGaussianKspaceBiasField` | `Off-center anisotropic Gaussian bias field` | Intensity non-uniformity | Applies an off-center anisotropic Gaussian gain field in k-space with separate widths along `kx` and `ky`. |
 | `GaussianNoiseDistortion` | `Gaussian noise` | Noise | Adds independent zero-mean Gaussian noise to the stored real and imaginary k-space channels. |
 | `TranslationMotionDistortion` | `Translation motion` | Motion | Applies a rigid in-plane translation as a unit-modulus phase ramp in k-space. |
-| `RotationalMotionDistortion` | `Rotational motion` | Motion | Applies a rigid in-plane rotation about the image center by rotating the image-domain object and transforming back to k-space. |
+| `RotationalMotionDistortion` | `Rotational motion` | Motion | Applies a rigid in-plane rotation about the image center by resampling centered Cartesian k-space. |
+| `SegmentedRotationalMotionDistortion` | `Segmented rotational motion` | Motion | Splits Cartesian k-space into acquisition segments and stitches segment-specific centered k-space rotations into one inconsistent scan. |
 | `SegmentedTranslationMotionDistortion` | `Segmented translation motion` | Motion | Splits Cartesian k-space into acquisition segments and applies a different translation phase ramp to each segment. |
 | `PhaseEncodeGhostingDistortion` | `Phase-encode ghosting` | Ghosting | Applies periodic line-wise phase and magnitude inconsistency to create phase-encode ghost replicas. |
 

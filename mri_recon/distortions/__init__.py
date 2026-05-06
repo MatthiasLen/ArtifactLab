@@ -7,6 +7,7 @@ from .biasfield import GaussianKspaceBiasField, OffCenterAnisotropicGaussianKspa
 from .ghosting import PhaseEncodeGhostingDistortion
 from .motion import (
     RotationalMotionDistortion,
+    SegmentedRotationalMotionDistortion,
     SegmentedTranslationMotionDistortion,
     TranslationMotionDistortion,
 )
