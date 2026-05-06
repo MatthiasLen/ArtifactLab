@@ -4,6 +4,21 @@
 
 MRI reconstruction playground for the MRI Metrics project.
 
+## FastMRI UNet Reconstructor
+
+The package includes `FastMRISinglecoilUnetReconstructor` in `mri_recon.reconstruction`.
+It wraps the pretrained fastMRI single-coil knee U-Net and applies the same per-slice
+magnitude normalization used during fastMRI training before rescaling the predicted
+image back to the original adjoint-image intensity range.
+
+By default the checkpoint is stored at the repository root as `knee_sc_leaderboard_state_dict.pt`.
+If the file is missing, the reconstructor downloads it from the official fastMRI URL,
+verifies its SHA256 checksum, and then loads the weights with `torch.load(..., weights_only=True)`.
+You can also pass a local checkpoint path explicitly through the `state_dict_file` argument.
+
+The model predicts a magnitude image, so the wrapper returns that output in the real channel
+and fills the imaginary channel with zeros.
+
 ## uv Environment Notes
 
 This project uses `uv.lock` and pins PyTorch through `uv` package indexes in `pyproject.toml`.

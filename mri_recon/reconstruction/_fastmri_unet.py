@@ -90,13 +90,13 @@ class Unet(nn.Module):
             downsample_layer = stack.pop()
             output = transpose_conv(output)
 
-            # reflect pad on the right/botton if needed to handle odd input dimensions
+            # reflect pad on the right/bottom if needed to handle odd input dimensions
             padding = [0, 0, 0, 0]
             if output.shape[-1] != downsample_layer.shape[-1]:
                 padding[1] = 1  # padding right
             if output.shape[-2] != downsample_layer.shape[-2]:
                 padding[3] = 1  # padding bottom
-            if torch.sum(torch.tensor(padding)) != 0:
+            if any(padding):
                 output = F.pad(output, padding, "reflect")
 
             output = torch.cat([output, downsample_layer], dim=1)
@@ -164,9 +164,7 @@ class TransposeConvBlock(nn.Module):
         self.out_chans = out_chans
 
         self.layers = nn.Sequential(
-            nn.ConvTranspose2d(
-                in_chans, out_chans, kernel_size=2, stride=2, bias=False
-            ),
+            nn.ConvTranspose2d(in_chans, out_chans, kernel_size=2, stride=2, bias=False),
             nn.InstanceNorm2d(out_chans),
             nn.LeakyReLU(negative_slope=0.2, inplace=True),
         )

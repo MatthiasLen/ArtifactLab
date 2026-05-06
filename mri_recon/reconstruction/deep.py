@@ -1,5 +1,12 @@
-import torch
+import hashlib
+import tempfile
+from pathlib import Path
+from urllib.request import urlopen
+
 import deepinv as dinv
+import torch
+
+from ._fastmri_unet import Unet
 
 
 class RAMReconstructor(dinv.models.Reconstructor):
@@ -80,13 +87,6 @@ class DeepImagePriorReconstructor(dinv.models.Reconstructor):
         return self.model(y, physics)
 
 
-import torch
-import requests
-from pathlib import Path
-from tqdm import tqdm
-from ._fastmri_unet import Unet
-
-
 class FastMRISinglecoilUnetReconstructor(dinv.models.Reconstructor):
     """
     Wrapper for pretrained UNet from FastMRI singlecoil knee challenge.
@@ -97,8 +97,27 @@ class FastMRISinglecoilUnetReconstructor(dinv.models.Reconstructor):
 
     NOTE: this model was trained on both train+val splits of the challenge (i.e. trained on singlecoil_train, singlecoil_val).
 
+    The pretrained fastMRI model expects magnitude images that are normalized per slice,
+    so this wrapper matches that preprocessing and rescales the output back to the
+    original adjoint-image intensity range.
+
     See https://github.com/facebookresearch/fastMRI/tree/main/fastmri_examples for more details.
     """
+
+    MODEL_URL = (
+        "https://dl.fbaipublicfiles.com/fastMRI/trained_models/unet/"
+        "knee_sc_leaderboard_state_dict.pt"
+    )
+    MODEL_SHA256 = "8f41f67d8eab2cca31ffff632a733a8712b1171c11f13e95b6f90fdf63399f9e"
+    MODEL_FILENAME = "knee_sc_leaderboard_state_dict.pt"
+    UNET_KWARGS = {
+        "in_chans": 1,
+        "out_chans": 1,
+        "chans": 256,
+        "num_pool_layers": 4,
+        "drop_prob": 0.0,
+    }
+
     def __init__(self, device: torch.device = None, state_dict_file: str = None) -> None:
         super().__init__()
 
@@ -106,44 +125,71 @@ class FastMRISinglecoilUnetReconstructor(dinv.models.Reconstructor):
             device = torch.device("cpu")
         self.device = device
 
-        self.model = Unet(
-            in_chans=1,
-            out_chans=1,
-            chans=256,
-            num_pool_layers=4,
-            drop_prob=0.0,
+        self.model = Unet(**self.UNET_KWARGS)
+
+        state_dict_path = (
+            Path(state_dict_file).expanduser()
+            if state_dict_file is not None
+            else Path(__file__).resolve().parents[2] / self.MODEL_FILENAME
         )
 
         if state_dict_file is None:
-            state_dict_file = "knee_sc_leaderboard_state_dict.pt"
-            if not Path(state_dict_file).exists():
-                self._download_model("https://dl.fbaipublicfiles.com/fastMRI/trained_models/unet/knee_sc_leaderboard_state_dict.pt", state_dict_file)
+            if not self._matches_sha256(state_dict_path, self.MODEL_SHA256):
+                self._download_model(self.MODEL_URL, state_dict_path, self.MODEL_SHA256)
+        elif not state_dict_path.exists():
+            raise FileNotFoundError(f"Checkpoint not found: {state_dict_path}")
 
-        self.model.load_state_dict(torch.load(state_dict_file, map_location=device))
+        self.model.load_state_dict(
+            torch.load(state_dict_path, map_location=device, weights_only=True)
+        )
         self.model.eval()
         self.model.to(device)
 
     @staticmethod
-    def _download_model(url: str, fname: str):
-        response = requests.get(url, timeout=10, stream=True)
-        total = int(response.headers.get("content-length", 0))
-        with open(fname, "wb") as fh, tqdm(
-            desc="Downloading UNet weights", total=total, unit="iB", unit_scale=True
-        ) as bar:
-            for chunk in response.iter_content(1024 * 1024):
-                fh.write(chunk)
-                bar.update(len(chunk))
+    def _matches_sha256(path: Path, expected_sha256: str) -> bool:
+        if not path.exists():
+            return False
 
-    def forward(self, y: torch.Tensor, physics: dinv.physics.Physics) -> torch.Tensor: # y: (B, 2, H, W) -> (B, 2, H, W)
+        digest = hashlib.sha256()
+        with path.open("rb") as handle:
+            for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                digest.update(chunk)
+        return digest.hexdigest() == expected_sha256
+
+    @classmethod
+    def _download_model(cls, url: str, fname: Path, expected_sha256: str) -> None:
+        fname.parent.mkdir(parents=True, exist_ok=True)
+
+        with tempfile.NamedTemporaryFile(
+            mode="wb", delete=False, dir=fname.parent, suffix=".tmp"
+        ) as handle:
+            tmp_path = Path(handle.name)
+
+            try:
+                with urlopen(url, timeout=30) as response:
+                    for chunk in iter(lambda: response.read(1024 * 1024), b""):
+                        handle.write(chunk)
+
+                if not cls._matches_sha256(tmp_path, expected_sha256):
+                    raise ValueError(f"Downloaded checkpoint failed SHA256 verification: {fname}")
+
+                tmp_path.replace(fname)
+            except Exception:
+                tmp_path.unlink(missing_ok=True)
+                raise
+
+    def forward(self, y: torch.Tensor, physics: dinv.physics.Physics) -> torch.Tensor:
         x_in = physics.A_adjoint(y)
 
-        x_in = dinv.utils.complex_abs(x_in, keepdim=True) # magnitude only
+        x_in = dinv.utils.complex_abs(x_in, keepdim=True)
 
+        # Match the fastMRI normalization used for training, then rescale the
+        # predicted magnitude image back to the original adjoint-image intensity range.
         mu = x_in.mean(dim=(-2, -1), keepdim=True)
         std = x_in.std(dim=(-2, -1), keepdim=True) + 1e-8
-        x_in = (x_in - mu) / std # following fastmri codebase's unet data transform
+        x_in = (x_in - mu) / std
 
         with torch.no_grad():
             out = self.model(x_in) * std + mu  # (B, 1, H, W)
 
-        return torch.cat([out, torch.zeros_like(out)], dim=1) # add blank imag channel
+        return torch.cat([out, torch.zeros_like(out)], dim=1)

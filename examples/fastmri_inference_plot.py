@@ -29,7 +29,7 @@ ALGORITHMS = [
     # "wavelet-fista",
     # "tv-fista",
     # "tv-pdhg",
-    "unet",
+    "unet",  # will trigger download of pretrained weights if not already present
 ]
 DISTORTIONS = [
     "Segmented translation motion",
