@@ -32,10 +32,15 @@ ALGORITHMS = [
     "unet",  # will trigger download of pretrained weights if not already present
 ]
 DISTORTIONS = [
+    "Phase-encode ghosting",
     "Segmented translation motion",
     "Translation motion",
+    "Rotational motion",
     "Off-center anisotropic Gaussian bias field",
     "Gaussian bias field",
+    "Anisotropic LP",
+    "Hann taper LP",
+    "Kaiser taper LP",
     "Gaussian noise",
     "Isotropic LP",
 ]
@@ -127,6 +132,29 @@ def choose_algorithm(
 
 def choose_distortion(name: str) -> BaseDistortion:
     match name:
+        case "Phase-encode ghosting":
+            return PhaseEncodeGhostingDistortion(
+                line_period=2,
+                line_offset=1,
+                phase_error_radians=torch.pi / 2,
+                corrupted_line_scale=1.0,
+            )
+        case "Anisotropic LP":
+            return AnisotropicResolutionReduction(
+                kx_radius_fraction=1.0,
+                ky_radius_fraction=0.25,
+            )
+        case "Hann taper LP":
+            return HannTaperResolutionReduction(
+                radius_fraction=0.35,
+                transition_fraction=0.4,
+            )
+        case "Kaiser taper LP":
+            return KaiserTaperResolutionReduction(
+                radius_fraction=0.35,
+                transition_fraction=0.4,
+                beta=8.6,
+            )
         case "Isotropic LP":
             return IsotropicResolutionReduction(radius_fraction=0.1)
         case "Off-center anisotropic Gaussian bias field":
@@ -139,6 +167,8 @@ def choose_distortion(name: str) -> BaseDistortion:
             )
         case "Translation motion":
             return TranslationMotionDistortion(shift_x_pixels=60, shift_y_pixels=10)
+        case "Rotational motion":
+            return RotationalMotionDistortion(angle_radians=torch.pi / 6)
         case "Segmented translation motion":
             return SegmentedTranslationMotionDistortion(
                 shift_x_pixels=(0.0, 20.0, 50.0, -50.0),
@@ -220,8 +250,9 @@ if __name__ == "__main__":
             y_distorted = distortion.A(y)
 
             # generate reference reconstructions (CG) for both clean and distorted k-space
+            # without correction for the distortion, i.e. using physics_clean in both cases
             x_clean = ConjugateGradientReconstructor()(y, physics_clean)
-            x_distorted = ConjugateGradientReconstructor()(y, physics)
+            x_distorted = ConjugateGradientReconstructor()(y_distorted, physics_clean)
 
             # plot and save the k-space magnitude for both clean and distorted k-space
             save_kspace_plot(

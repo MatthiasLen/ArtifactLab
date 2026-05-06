@@ -4,21 +4,7 @@ from __future__ import annotations
 
 import torch
 
-from mri_recon.distortions.base import BaseDistortion, _frequency_grids
-
-
-def _normalized_frequency_grids(
-    shape: tuple[int, ...], device: torch.device
-) -> tuple[torch.Tensor, torch.Tensor]:
-    """Return Cartesian frequency grids normalized by the sampled max radius."""
-
-    kx, ky = _frequency_grids(shape)
-    kx = kx.to(device)
-    ky = ky.to(device)
-    max_radius = torch.sqrt(kx * kx + ky * ky).max()
-    if float(max_radius) <= 0.0:
-        return torch.zeros_like(kx), torch.zeros_like(ky)
-    return kx / max_radius, ky / max_radius
+from mri_recon.distortions.base import BaseDistortion, _normalized_frequency_grids
 
 
 def _gaussian_bias_gain_field(
@@ -32,7 +18,9 @@ def _gaussian_bias_gain_field(
 ) -> torch.Tensor:
     """Build a normalized Gaussian multiplicative gain field on the sampled grid."""
 
-    kx, ky = _normalized_frequency_grids(shape, device)
+    kx, ky = _normalized_frequency_grids(shape)
+    kx = kx.to(device)
+    ky = ky.to(device)
     dx = (kx - center_x_fraction) / width_x_fraction
     dy = (ky - center_y_fraction) / width_y_fraction
     gaussian = torch.exp(-0.5 * (dx * dx + dy * dy))

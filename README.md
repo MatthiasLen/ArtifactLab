@@ -4,20 +4,36 @@
 
 MRI reconstruction playground for the MRI Metrics project.
 
-## FastMRI UNet Reconstructor
+## Implemented Reconstruction Algorithms
 
-The package includes `FastMRISinglecoilUnetReconstructor` in `mri_recon.reconstruction`.
-It wraps the pretrained fastMRI single-coil knee U-Net and applies the same per-slice
-magnitude normalization used during fastMRI training before rescaling the predicted
-image back to the original adjoint-image intensity range.
+| Class | Selector name | Family | Summary |
+| --- | --- | --- | --- |
+| `ZeroFilledReconstructor` | `zero-filled` | Direct baseline | Returns the adjoint reconstruction, i.e. the standard zero-filled inverse FFT baseline. |
+| `ConjugateGradientReconstructor` | `conjugate-gradient` | Classical iterative | Uses `physics.A_dagger(...)` to solve the inverse problem with conjugate-gradient style least-squares reconstruction. |
+| `TVPGDReconstructor` | `tv-pgd` | Variational iterative | Proximal gradient descent with an L2 data term and total-variation prior. |
+| `WaveletFISTAReconstructor` | `wavelet-fista` | Variational iterative | FISTA with an L1 wavelet prior for sparse regularization in a wavelet basis. |
+| `TVFISTAReconstructor` | `tv-fista` | Variational iterative | FISTA with total-variation regularization. |
+| `TVPDHGReconstructor` | `tv-pdhg` | Variational iterative | Primal-dual hybrid gradient / Chambolle-Pock optimization with total-variation regularization. |
+| `RAMReconstructor` | `ram` | Deep learning | Wrapper around the DeepInverse RAM model, with input normalization based on the adjoint reconstruction. |
+| `DeepImagePriorReconstructor` | `dip` | Deep learning | Deep Image Prior reconstruction using an untrained convolutional decoder optimized at inference time. |
 
-By default the checkpoint is stored at the repository root as `knee_sc_leaderboard_state_dict.pt`.
-If the file is missing, the reconstructor downloads it from the official fastMRI URL,
-verifies its SHA256 checksum, and then loads the weights with `torch.load(..., weights_only=True)`.
-You can also pass a local checkpoint path explicitly through the `state_dict_file` argument.
+## Implemented Distortions
 
-The model predicts a magnitude image, so the wrapper returns that output in the real channel
-and fills the imaginary channel with zeros.
+| Class | Selector name | Family | Summary |
+| --- | --- | --- | --- |
+| `BaseDistortion` | `None` | Identity | Leaves the k-space unchanged and serves as the no-distortion baseline. |
+| `SelfAdjointMultiplicativeMaskDistortion` | `None` | Abstract base | Super class for self-adjoint distortions that apply a real-valued elementwise multiplicative mask; subclasses implement `_mask`. |
+| `IsotropicResolutionReduction` | `Isotropic LP` | Resolution loss | Applies a circular low-pass mask in k-space to remove high frequencies isotropically. |
+| `AnisotropicResolutionReduction` | `Anisotropic LP` | Resolution loss | Applies an axis-aligned rectangular low-pass mask with separate cutoffs along `kx` and `ky`. |
+| `HannTaperResolutionReduction` | `Hann taper LP` | Resolution loss | Applies a circular low-pass mask with a raised-cosine transition band to soften the cutoff. |
+| `KaiserTaperResolutionReduction` | `Kaiser taper LP` | Resolution loss | Applies a circular low-pass mask with a Kaiser transition band for adjustable cutoff smoothness. |
+| `GaussianKspaceBiasField` | `Gaussian bias field` | Intensity non-uniformity | Applies a centered smooth multiplicative Gaussian gain field in k-space. |
+| `OffCenterAnisotropicGaussianKspaceBiasField` | `Off-center anisotropic Gaussian bias field` | Intensity non-uniformity | Applies an off-center anisotropic Gaussian gain field in k-space with separate widths along `kx` and `ky`. |
+| `GaussianNoiseDistortion` | `Gaussian noise` | Noise | Adds independent zero-mean Gaussian noise to the stored real and imaginary k-space channels. |
+| `TranslationMotionDistortion` | `Translation motion` | Motion | Applies a rigid in-plane translation as a unit-modulus phase ramp in k-space. |
+| `RotationalMotionDistortion` | `Rotational motion` | Motion | Applies a rigid in-plane rotation about the image center by rotating the image-domain object and transforming back to k-space. |
+| `SegmentedTranslationMotionDistortion` | `Segmented translation motion` | Motion | Splits Cartesian k-space into acquisition segments and applies a different translation phase ramp to each segment. |
+| `PhaseEncodeGhostingDistortion` | `Phase-encode ghosting` | Ghosting | Applies periodic line-wise phase and magnitude inconsistency to create phase-encode ghost replicas. |
 
 ## uv Environment Notes
 
@@ -46,3 +62,11 @@ uv run pre-commit run --all-files
 ```
 
 GitHub Actions runs the same `pre-commit` command in CI and also runs the test suite with `uv run pytest`.
+
+## Contributing
+
+1. **Pre-commit hooks** – install and run them before pushing (see [Pre-commit](#pre-commit) above). CI enforces the same checks.
+2. **Docstrings** – add a NumPy-style docstring to every public function, method, and class. Include a one-line summary, `Parameters`, and `Returns` sections where applicable.
+3. **README updates** – if you add a new reconstructor or distortion, append a row to the corresponding table. Keep descriptions concise (one sentence).
+4. **Tests** – add or update tests under `tests/` for any new behaviour. Run the full suite with `uv run pytest` before opening a PR.
+5. **Branching** – open a feature branch, keep commits focused, and open a pull request against `main`.
