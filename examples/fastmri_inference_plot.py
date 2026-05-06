@@ -32,17 +32,18 @@ ALGORITHMS = [
     "unet",  # will trigger download of pretrained weights if not already present
 ]
 DISTORTIONS = [
-    "Phase-encode ghosting",
-    "Segmented translation motion",
-    "Translation motion",
-    "Rotational motion",
-    "Off-center anisotropic Gaussian bias field",
-    "Gaussian bias field",
-    "Anisotropic LP",
-    "Hann taper LP",
-    "Kaiser taper LP",
-    "Gaussian noise",
-    "Isotropic LP",
+    # "Phase-encode ghosting",
+    # "Segmented translation motion",
+    # "Translation motion",
+    # "Rotational motion",
+    # "Off-center anisotropic Gaussian bias field",
+    # "Gaussian bias field",
+    # "Anisotropic LP",
+    # "Hann taper LP",
+    # "Kaiser taper LP",
+    "Radial high-pass emphasis",
+    # "Gaussian noise",
+    # "Isotropic LP",
 ]
 METRICS = [
     "PSNR",
@@ -155,6 +156,8 @@ def choose_distortion(name: str) -> BaseDistortion:
                 transition_fraction=0.4,
                 beta=8.6,
             )
+        case "Radial high-pass emphasis":
+            return RadialHighPassEmphasisDistortion(alpha=0.4)
         case "Isotropic LP":
             return IsotropicResolutionReduction(radius_fraction=0.1)
         case "Off-center anisotropic Gaussian bias field":
