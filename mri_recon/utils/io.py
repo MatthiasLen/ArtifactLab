@@ -3,6 +3,8 @@ import tempfile
 from pathlib import Path
 from urllib.request import urlopen
 
+from tqdm.auto import tqdm
+
 
 def matches_sha256(path: Path, expected_sha256: str) -> bool:
     if not path.exists():
@@ -30,6 +32,7 @@ def download_file_with_sha256(
     destination.parent.mkdir(parents=True, exist_ok=True)
     print(f"Downloading {label} from {url} to {destination}. This may take a moment.")
 
+    chunk_size = 1024 * 1024
     report_interval = report_interval_mb * 1024 * 1024
     tmp_path = None
 
@@ -42,27 +45,18 @@ def download_file_with_sha256(
             with urlopen(url, timeout=30) as response:
                 total_size = response.headers.get("Content-Length")
                 total_size = int(total_size) if total_size is not None else None
-                downloaded = 0
-                next_report = report_interval
-
-                for chunk in iter(lambda: response.read(1024 * 1024), b""):
-                    handle.write(chunk)
-                    downloaded += len(chunk)
-
-                    should_report = downloaded >= next_report
-                    if total_size is not None and downloaded == total_size:
-                        should_report = True
-
-                    if should_report:
-                        if total_size is None:
-                            print(f"Downloaded {format_megabytes(downloaded)} of {label}...")
-                        else:
-                            print(
-                                f"Downloaded {format_megabytes(downloaded)} / "
-                                f"{format_megabytes(total_size)} "
-                                f"({100 * downloaded / total_size:.1f}%)"
-                            )
-                        next_report += report_interval
+                with tqdm(
+                    total=total_size,
+                    desc=f"Downloading {label}",
+                    unit="B",
+                    unit_scale=True,
+                    unit_divisor=1024,
+                    miniters=max(1, report_interval // chunk_size),
+                    disable=False,
+                ) as progress:
+                    for chunk in iter(lambda: response.read(chunk_size), b""):
+                        handle.write(chunk)
+                        progress.update(len(chunk))
 
         if not matches_sha256(tmp_path, expected_sha256):
             raise ValueError(f"Downloaded file failed SHA256 verification: {destination}")

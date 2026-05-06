@@ -25,7 +25,7 @@ ALGORITHMS = [
     # "conjugate-gradient",
     # "ram",
     # "dip",
-    "tv-pgd",
+    # "tv-pgd",
     # "wavelet-fista",
     # "tv-fista",
     # "tv-pdhg",
