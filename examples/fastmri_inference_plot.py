@@ -48,7 +48,7 @@ DISTORTIONS = [
     "Kaiser taper LP",
     "Gaussian noise",
     "Isotropic LP",
-    "Radial high-pass emphasis"
+    "Radial high-pass emphasis",
 ]
 METRICS = [
     "PSNR",
