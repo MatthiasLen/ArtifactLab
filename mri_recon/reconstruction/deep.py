@@ -163,3 +163,106 @@ class FastMRISinglecoilUnetReconstructor(dinv.models.Reconstructor):
             out = self.model(x_in) * std + mu  # (B, 1, H, W)
 
         return torch.cat([out, torch.zeros_like(out)], dim=1)
+
+
+def _load_unet_checkpoint_state(
+    checkpoint_path: Path,
+    device: torch.device,
+) -> dict[str, torch.Tensor]:
+    """Load U-Net weights from a plain or Lightning-style checkpoint."""
+
+    try:
+        checkpoint = torch.load(checkpoint_path, map_location=device, weights_only=False)
+    except TypeError:
+        checkpoint = torch.load(checkpoint_path, map_location=device)
+
+    if isinstance(checkpoint, dict) and "state_dict" in checkpoint:
+        state_dict = checkpoint["state_dict"]
+    elif isinstance(checkpoint, dict) and "model_state_dict" in checkpoint:
+        state_dict = checkpoint["model_state_dict"]
+    elif isinstance(checkpoint, dict):
+        state_dict = checkpoint
+    else:
+        raise ValueError(f"Unsupported checkpoint format in {checkpoint_path}.")
+
+    if any(key.startswith("unet.") for key in state_dict):
+        return {
+            key[len("unet.") :]: value
+            for key, value in state_dict.items()
+            if key.startswith("unet.")
+        }
+
+    if any(key.startswith("model.unet.") for key in state_dict):
+        return {
+            key[len("model.unet.") :]: value
+            for key, value in state_dict.items()
+            if key.startswith("model.unet.")
+        }
+
+    if any(key.startswith("module.") for key in state_dict):
+        return {
+            key[len("module.") :]: value
+            for key, value in state_dict.items()
+            if key.startswith("module.")
+        }
+
+    return state_dict
+
+
+class OASISSinglecoilUnetReconstructor(dinv.models.Reconstructor):
+    """
+    Wrapper for a trained OASIS single-coil U-Net reconstruction model.
+
+    The model reuses the repository's fastMRI-derived :class:`Unet` module, but
+    loads an OASIS checkpoint supplied by the caller. The forward pass converts
+    k-space to a zero-filled magnitude image, applies per-slice instance
+    normalization, runs the U-Net, then rescales the prediction back to the
+    adjoint-image intensity range.
+
+    :param str checkpoint_file: Path to the trained OASIS U-Net checkpoint.
+    :param torch.device device: Device on which to run inference.
+    """
+
+    UNET_KWARGS = {
+        "in_chans": 1,
+        "out_chans": 1,
+        "chans": 32,
+        "num_pool_layers": 4,
+        "drop_prob": 0.0,
+    }
+
+    def __init__(
+        self,
+        checkpoint_file: str,
+        device: torch.device = None,
+    ) -> None:
+        super().__init__()
+
+        if device is None:
+            device = torch.device("cpu")
+        self.device = device
+
+        checkpoint_path = Path(checkpoint_file).expanduser()
+        if not checkpoint_path.exists():
+            raise FileNotFoundError(f"Checkpoint not found: {checkpoint_path}")
+
+        self.model = Unet(**self.UNET_KWARGS)
+        self.model.load_state_dict(
+            _load_unet_checkpoint_state(checkpoint_path, device),
+            strict=True,
+        )
+        self.model.eval()
+        self.model.to(device)
+
+    def forward(self, y: torch.Tensor, physics: dinv.physics.Physics) -> torch.Tensor:
+        """Reconstruct a magnitude image from measured k-space."""
+
+        x_in = dinv.utils.complex_abs(physics.A_adjoint(y), keepdim=True)
+        mu = x_in.mean(dim=(-2, -1), keepdim=True)
+        std = x_in.std(dim=(-2, -1), keepdim=True) + 1e-11
+        x_in = (x_in - mu) / std
+
+        with torch.no_grad():
+            out = self.model(x_in) * std + mu
+
+        return torch.cat([out, torch.zeros_like(out)], dim=1)
