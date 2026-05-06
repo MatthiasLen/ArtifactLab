@@ -221,25 +221,46 @@ class KaiserTaperResolutionReduction(SelfAdjointMultiplicativeMaskDistortion):
 class RadialHighPassEmphasisDistortion(SelfAdjointMultiplicativeMaskDistortion):
     """Radially boost high frequencies with a smooth monotone gain field.
 
-    The mask equals ``1 + alpha * r**exponent`` on the normalized radial
-    frequency grid, where ``r`` is ``0`` at the k-space center and ``1`` at the
-    sampled edge.
+    The mask equals ``1`` in the low-frequency core, rises smoothly across a
+    fixed transition band, and reaches ``1 + alpha`` at the sampled edge. This
+    behaves like a gentle high-frequency shelf rather than amplifying all
+    nonzero frequencies.
 
     :param float alpha: Non-negative gain added at the k-space edge.
-    :param float exponent: Positive roll-on exponent controlling how quickly the
-        boost increases with radius.
+    :param float boost_start_radius: Normalized radius in ``[0, 1)`` where the
+        high-frequency shelf begins to rise.
+    :param float boost_end_radius: Normalized radius in ``(0, 1]`` where the
+        shelf reaches its full gain.
     """
 
-    def __init__(self, alpha: float = 0.4, exponent: float = 2.0) -> None:
+    BOOST_START_RADIUS = 0.4
+    BOOST_END_RADIUS = 0.9
+
+    def __init__(
+        self,
+        alpha: float = 0.4,
+        boost_start_radius: float = BOOST_START_RADIUS,
+        boost_end_radius: float = BOOST_END_RADIUS,
+    ) -> None:
         super().__init__()
         if alpha < 0.0:
             raise ValueError("alpha must be non-negative")
-        if exponent <= 0.0:
-            raise ValueError("exponent must be positive")
+        if not 0.0 <= boost_start_radius < 1.0:
+            raise ValueError("boost_start_radius must be in [0, 1)")
+        if not 0.0 < boost_end_radius <= 1.0:
+            raise ValueError("boost_end_radius must be in (0, 1]")
+        if boost_start_radius >= boost_end_radius:
+            raise ValueError("boost_start_radius must be smaller than boost_end_radius")
 
         self.alpha = alpha
-        self.exponent = exponent
+        self.boost_start_radius = boost_start_radius
+        self.boost_end_radius = boost_end_radius
 
     def _mask(self, shape: tuple[int, ...], device: torch.device) -> torch.Tensor:
         radius = _radial_frequency(shape).to(device)
-        return 1.0 + self.alpha * radius.pow(self.exponent)
+        transition = (radius - self.boost_start_radius) / (
+            self.boost_end_radius - self.boost_start_radius
+        )
+        transition = transition.clamp(0.0, 1.0)
+        transition = transition * transition * (3.0 - 2.0 * transition)
+        return 1.0 + self.alpha * transition
