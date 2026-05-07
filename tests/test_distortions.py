@@ -663,12 +663,12 @@ def test_cartesian_undersampling_rejects_center_fraction_exceeding_keep_fraction
 
 
 def test_cartesian_undersampling_rejects_invalid_axis(device):
-    """Verify that axis must be -2 or -3."""
-    with pytest.raises(ValueError, match="axis must be -2 or -3"):
-        CartesianUndersampling(axis=-1)
-
-    with pytest.raises(ValueError, match="axis must be -2 or -3"):
+    """Verify that axis must be one of the supported trailing k-space axes."""
+    with pytest.raises(ValueError, match="axis must be -1, -2, or -3"):
         CartesianUndersampling(axis=0)
+
+    with pytest.raises(ValueError, match="axis must be -1, -2, or -3"):
+        CartesianUndersampling(axis=-4)
 
 
 def test_cartesian_undersampling_rejects_invalid_pattern(device):
@@ -727,6 +727,22 @@ def test_cartesian_undersampling_preserves_center_acs_region(device):
     center_end = center_start + center_lines
 
     assert torch.all(mask_1d[center_start:center_end] == 1.0)
+
+
+def test_cartesian_undersampling_can_mask_readout_axis(device):
+    """Verify that axis=-1 masks columns rather than phase-encode rows."""
+    distortion = CartesianUndersampling(
+        keep_fraction=0.25,
+        center_fraction=0.125,
+        pattern="equispaced",
+        axis=-1,
+    )
+    shape = (1, 2, 32, 64)
+    mask = distortion._mask(shape, torch.device(device))
+
+    assert mask.shape == (1, 1, 1, 64)
+    assert torch.sum(mask[0, 0, 0]).item() == 16
+    assert torch.all(mask.expand(shape)[:, :, 0, :] == mask.expand(shape)[:, :, -1, :])
 
 
 def test_cartesian_undersampling_zero_center_fraction_has_no_forced_acs(device):

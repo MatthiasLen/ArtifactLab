@@ -7,13 +7,12 @@ Usage:
 from __future__ import annotations
 
 import argparse
-import contextlib
 import json
 import os
 import sys
 from collections import OrderedDict
 from pathlib import Path
-from typing import Optional, Sequence, Union
+from typing import Optional
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -34,6 +33,7 @@ except ImportError as exc:
 from mri_recon.distortions import (
     AnisotropicResolutionReduction,
     BaseDistortion,
+    CartesianUndersampling,
     DistortedKspaceMultiCoilMRI,
     GaussianKspaceBiasField,
     GaussianNoiseDistortion,
@@ -76,20 +76,27 @@ ALGORITHMS = [
     # "tv-fista",
     # "tv-pdhg",
     "oasis-unet",
+    "unet",
 ]
 DISTORTIONS = [
-    # "Phase-encode ghosting",
-    # "Segmented translation motion",
-    # "Translation motion",
-    # "Rotational motion",
-    # "Off-center anisotropic Gaussian bias field",
-    # "Gaussian bias field",
-    # "Anisotropic LP",
-    # "Hann taper LP",
-    # "Kaiser taper LP",
+    "None",
+    "Cartesian undersampling (variable density)",
+    "Cartesian undersampling (uniform random)",
+    "Cartesian undersampling (uniform random, zero ACS)",
+    "Cartesian undersampling (equispaced)",
+    "Cartesian undersampling (equispaced, zero ACS)",
+    "Phase-encode ghosting",
+    "Segmented translation motion",
+    "Translation motion",
+    "Rotational motion",
+    "Off-center anisotropic Gaussian bias field",
+    "Gaussian bias field",
+    "Anisotropic LP",
+    "Hann taper LP",
+    "Kaiser taper LP",
     "Radial high-pass emphasis",
-    # "Gaussian noise",
-    # "Isotropic LP",
+    "Gaussian noise",
+    "Isotropic LP",
 ]
 METRICS = [
     "PSNR",
@@ -101,74 +108,20 @@ METRICS = [
 ]
 
 
-@contextlib.contextmanager
-def temp_seed(
-    rng: np.random.RandomState,
-    seed: Optional[Union[int, tuple[int, ...]]] = None,
-):
-    """Temporarily set a NumPy random seed."""
-
-    if seed is None:
-        yield
-        return
-
-    state = rng.get_state()
-    rng.seed(seed)
-    try:
-        yield
-    finally:
-        rng.set_state(state)
-
-
-class MaskFunc:
-    """Random Cartesian undersampling mask matching the packaged OASIS checkpoints."""
-
-    def __init__(
-        self,
-        center_fractions: Sequence[float],
-        accelerations: Sequence[int],
-        seed: Optional[int] = None,
-    ) -> None:
-        if len(center_fractions) != len(accelerations):
-            raise ValueError("center_fractions and accelerations must have the same length.")
-
-        self.center_fractions = list(center_fractions)
-        self.accelerations = list(accelerations)
-        self.rng = np.random.RandomState(seed)
-
-    def __call__(
-        self,
-        shape: Sequence[int],
-        seed: Optional[Union[int, tuple[int, ...]]] = None,
-    ) -> torch.Tensor:
-        """Create a broadcastable mask for k-space shaped ``(..., H, W)``."""
-
-        if len(shape) < 2:
-            raise ValueError("Mask shape must have at least two dimensions.")
-
-        with temp_seed(self.rng, seed):
-            center_fraction = self.rng.choice(self.center_fractions)
-            acceleration = self.rng.choice(self.accelerations)
-            num_cols = shape[-1]
-            num_low_freqs = round(num_cols * center_fraction)
-
-            center_mask = np.zeros(num_cols, dtype=np.float32)
-            pad = (num_cols - num_low_freqs) // 2
-            center_mask[pad : pad + num_low_freqs] = 1
-
-            accel_prob = (num_cols / acceleration - num_low_freqs) / (
-                num_cols - num_low_freqs
-            )
-            accel_mask = self.rng.uniform(size=num_cols) < accel_prob
-
-            mask = np.maximum(center_mask, accel_mask.astype(np.float32))
-            mask_shape = [1 for _ in shape]
-            mask_shape[-1] = num_cols
-            return torch.from_numpy(mask.reshape(*mask_shape).astype(np.float32))
-
-
 class OasisSliceDataset(Dataset):
-    """Load 2D OASIS slices from Analyze/NIfTI volumes listed in a split CSV."""
+    """Load 2D OASIS slices from Analyze/NIfTI volumes.
+
+    Parameters
+    ----------
+    split_csv : Path
+        CSV file listing OASIS subjects and slice counts.
+    data_path : Path
+        Root directory containing OASIS subject folders.
+    sample_rate : float, optional
+        Fraction of slices to include from each volume.
+    cache_size : int, optional
+        Number of loaded volumes to keep in memory.
+    """
 
     def __init__(
         self,
@@ -259,16 +212,30 @@ class OasisSliceDataset(Dataset):
 def _kspace_to_log_magnitude(kspace: torch.Tensor) -> torch.Tensor:
     """Convert k-space tensor to log-magnitude image for visualization."""
 
-    if kspace.ndim == 4:
-        kspace = kspace[0]
-    if kspace.ndim != 3 or kspace.shape[0] != 2:
-        raise ValueError(
-            f"Expected k-space with shape (2, H, W) or (1, 2, H, W), got {tuple(kspace.shape)}"
-        )
-
     kspace = kspace.detach().cpu()
-    kspace_complex = torch.view_as_complex(kspace.permute(1, 2, 0).contiguous())
-    magnitude = torch.log1p(torch.abs(kspace_complex))
+    if kspace.ndim == 5:
+        kspace = kspace[0]
+    if kspace.ndim == 4:
+        if kspace.shape[0] == 1 and kspace.shape[1] == 2:
+            kspace = kspace[0]
+        elif kspace.shape[0] != 2:
+            raise ValueError(
+                "Expected k-space with shape (2, H, W), (1, 2, H, W), "
+                f"or (1, 2, N, H, W), got {tuple(kspace.shape)}"
+            )
+    if kspace.ndim != 3 and kspace.ndim != 4:
+        raise ValueError(
+            "Expected k-space with shape (2, H, W), (1, 2, H, W), "
+            f"or (1, 2, N, H, W), got {tuple(kspace.shape)}"
+        )
+    if kspace.shape[0] != 2:
+        raise ValueError(f"Expected real/imaginary channel first, got {tuple(kspace.shape)}")
+
+    kspace_complex = torch.view_as_complex(torch.movedim(kspace, 0, -1).contiguous())
+    magnitude = torch.abs(kspace_complex)
+    if magnitude.ndim == 3:
+        magnitude = torch.sqrt(torch.sum(magnitude.square(), dim=0))
+    magnitude = torch.log1p(magnitude)
 
     lower = torch.quantile(magnitude, 0.05)
     upper = torch.quantile(magnitude, 0.995)
@@ -306,12 +273,95 @@ def save_kspace_plot(
     plt.close(fig)
 
 
+def image_to_kspace(x: torch.Tensor) -> torch.Tensor:
+    """Convert channel-first complex images to centered k-space."""
+
+    x_complex = torch.view_as_complex(x.movedim(1, -1).contiguous())
+    y_complex = torch.fft.fftshift(
+        torch.fft.fft2(x_complex, dim=(-2, -1), norm="ortho"),
+        dim=(-2, -1),
+    )
+    return torch.view_as_real(y_complex).movedim(-1, 1).contiguous()
+
+
+def kspace_to_image(y: torch.Tensor) -> torch.Tensor:
+    """Convert centered channel-first k-space to complex images."""
+
+    y_complex = torch.view_as_complex(y.movedim(1, -1).contiguous())
+    x_complex = torch.fft.ifft2(
+        torch.fft.ifftshift(y_complex, dim=(-2, -1)),
+        dim=(-2, -1),
+        norm="ortho",
+    )
+    return torch.view_as_real(x_complex).movedim(-1, 1).contiguous()
+
+
+class OasisCenteredFFTPhysics:
+    """Physics adapter matching the OASIS U-Net FFT convention.
+
+    Parameters
+    ----------
+    distortion : BaseDistortion
+        K-space distortion applied after the centered FFT.
+    """
+
+    def __init__(self, distortion: BaseDistortion) -> None:
+        self.distortion = distortion
+
+    def A(self, x: torch.Tensor) -> torch.Tensor:
+        """Apply centered FFT and k-space distortion.
+
+        Parameters
+        ----------
+        x : torch.Tensor
+            Complex image tensor with shape ``(B, 2, H, W)``.
+
+        Returns
+        -------
+        torch.Tensor
+            Distorted centered k-space tensor.
+        """
+
+        return self.distortion.A(image_to_kspace(x))
+
+    def A_adjoint(self, y: torch.Tensor) -> torch.Tensor:
+        """Apply adjoint distortion and centered inverse FFT.
+
+        Parameters
+        ----------
+        y : torch.Tensor
+            Distorted centered k-space tensor.
+
+        Returns
+        -------
+        torch.Tensor
+            Complex image tensor with shape ``(B, 2, H, W)``.
+        """
+
+        return kspace_to_image(self.distortion.A_adjoint(y))
+
+
 def resolve_oasis_checkpoint(
     checkpoint: Optional[Path],
     acceleration: int,
     manifest_path: Path,
 ) -> Path:
-    """Resolve an explicit or packaged OASIS checkpoint path."""
+    """Resolve an explicit or packaged OASIS checkpoint path.
+
+    Parameters
+    ----------
+    checkpoint : Path or None
+        User-provided checkpoint path.
+    acceleration : int
+        Acceleration key used when loading from the manifest.
+    manifest_path : Path
+        JSON manifest with packaged checkpoint metadata.
+
+    Returns
+    -------
+    Path
+        Resolved checkpoint path.
+    """
 
     if checkpoint is not None:
         return checkpoint.expanduser().resolve()
@@ -368,10 +418,56 @@ def choose_algorithm(
             raise ValueError(f"Unknown algorithm {name!r}")
 
 
-def choose_distortion(name: str) -> BaseDistortion:
+def choose_distortion(
+    name: str,
+    acceleration: int,
+    center_fraction: float,
+) -> BaseDistortion:
     """Construct a k-space distortion by display name."""
 
     match name:
+        case "None":
+            return BaseDistortion()
+        case "Cartesian undersampling (variable density)":
+            return CartesianUndersampling(
+                keep_fraction=1.0 / acceleration,
+                center_fraction=center_fraction,
+                pattern="variable_density_random",
+                axis=-1,
+                seed=42,
+            )
+        case "Cartesian undersampling (uniform random)":
+            return CartesianUndersampling(
+                keep_fraction=1.0 / acceleration,
+                center_fraction=center_fraction,
+                pattern="uniform_random",
+                axis=-1,
+                seed=42,
+            )
+        case "Cartesian undersampling (uniform random, zero ACS)":
+            return CartesianUndersampling(
+                keep_fraction=1.0 / acceleration,
+                center_fraction=0.0,
+                pattern="uniform_random",
+                axis=-1,
+                seed=42,
+            )
+        case "Cartesian undersampling (equispaced)":
+            return CartesianUndersampling(
+                keep_fraction=1.0 / acceleration,
+                center_fraction=center_fraction,
+                pattern="equispaced",
+                axis=-1,
+                seed=42,
+            )
+        case "Cartesian undersampling (equispaced, zero ACS)":
+            return CartesianUndersampling(
+                keep_fraction=1.0 / acceleration,
+                center_fraction=0.0,
+                pattern="equispaced",
+                axis=-1,
+                seed=42,
+            )
         case "Phase-encode ghosting":
             return PhaseEncodeGhostingDistortion(
                 line_period=2,
@@ -482,13 +578,18 @@ def build_parser() -> argparse.ArgumentParser:
         "--center_fraction",
         type=float,
         default=0.08,
-        help="Center fraction used by the random Cartesian sampling mask.",
+        help="Center fraction used by the Cartesian undersampling distortion.",
     )
-    parser.add_argument("--distortion", type=str, default="", choices=DISTORTIONS)
+    parser.add_argument(
+        "--distortion",
+        type=str,
+        default="Cartesian undersampling (uniform random)",
+        choices=DISTORTIONS,
+    )
     parser.add_argument(
         "--algorithm",
         type=str,
-        default="",
+        default="unet",
         choices=ALGORITHMS,
         help="Reconstruction algorithm applied to distorted OASIS k-space.",
     )
@@ -496,7 +597,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--sample_rate",
         type=float,
-        default=1.0,
+        default=0.6,
         help="Fraction of slices per volume to include from the split CSV.",
     )
     parser.add_argument("--volume_cache_size", type=int, default=2)
@@ -524,11 +625,7 @@ def main() -> None:
         sample_rate=args.sample_rate,
         cache_size=args.volume_cache_size,
     )
-    dataloader = DataLoader(dataset, batch_size=1, shuffle=False)
-    mask_func = MaskFunc(
-        center_fractions=[args.center_fraction],
-        accelerations=[args.acceleration],
-    )
+    dataloader = DataLoader(dataset, batch_size=1, shuffle=True)
     metrics = [choose_metric(m) for m in METRICS]
 
     for i, batch in enumerate(iter(dataloader)):
@@ -538,30 +635,31 @@ def main() -> None:
         x = batch["x"].to(device)
         subject_id = batch["subject_id"][0]
         slice_num = int(batch["slice_num"][0])
-        mask = mask_func(x.shape, seed=tuple(map(ord, subject_id))).to(device)
-        mask_2d = mask.reshape(-1).view(1, -1).expand(x.shape[-2], x.shape[-1])
 
-        for distortion_name in DISTORTIONS if args.distortion == "" else [args.distortion]:
-            distortion = choose_distortion(distortion_name)
+        for distortion_name in [args.distortion]:
+            distortion = choose_distortion(
+                distortion_name,
+                acceleration=args.acceleration,
+                center_fraction=args.center_fraction,
+            )
 
             physics_clean = DistortedKspaceMultiCoilMRI(
                 distortion=BaseDistortion(),
-                mask=mask_2d,
                 img_size=(1, 2, *x.shape[-2:]),
-                coil_maps=1,
                 device=device,
             )
             physics = DistortedKspaceMultiCoilMRI(
                 distortion=distortion,
-                mask=mask_2d,
                 img_size=(1, 2, *x.shape[-2:]),
-                coil_maps=1,
                 device=device,
             )
+            oasis_physics_clean = OasisCenteredFFTPhysics(BaseDistortion())
+            oasis_physics = OasisCenteredFFTPhysics(distortion)
 
-            y = physics_clean(x)
-            y_distorted = physics(x)
-            x_distorted = ConjugateGradientReconstructor()(y_distorted, physics_clean)
+            y = image_to_kspace(x)
+            y_distorted = distortion.A(y)
+            y_physics_distorted = physics(x)
+            x_distorted = kspace_to_image(y_distorted)
 
             save_kspace_plot(
                 y,
@@ -584,27 +682,38 @@ def main() -> None:
                     verbose=args.verbose,
                 ).to(device)
 
-                x_uncorrected = algo(y_distorted, physics_clean)
-                x_corrected = algo(y_distorted, physics)
+                if algo_name in {"oasis-unet", "unet"}:
+                    y_eval = y_distorted
+                    eval_physics_clean = oasis_physics_clean
+                    eval_physics = oasis_physics
+                else:
+                    y_eval = y_physics_distorted
+                    eval_physics_clean = physics_clean
+                    eval_physics = physics
+
+                x_uncorrected = algo(y_eval, eval_physics_clean)
+                x_corrected = algo(y_eval, eval_physics)
+                uncorrected_scores = [
+                    f"{m.__class__.__name__} {m(x_uncorrected, x).item():.2f}" for m in metrics
+                ]
+                corrected_scores = [
+                    f"{m.__class__.__name__} {m(x_corrected, x).item():.2f}" for m in metrics
+                ]
+                print(f"  uncorrected: {', '.join(uncorrected_scores)}")
+                print(f"  corrected: {', '.join(corrected_scores)}")
 
                 dinv.utils.plot(
                     {
                         "Ground truth OASIS slice": x,
-                        "Distorted ksp, CG recon": x_distorted,
+                        "Distorted ksp, zero-filled": x_distorted,
                         f"Distorted ksp, {algo_name} recon, uncorrected": x_uncorrected,
                         f"Distorted ksp, {algo_name} recon, corrected": x_corrected,
                     },
                     subtitles=[
                         "",
                         "",
-                        "\n".join(
-                            f"{m.__class__.__name__} {m(x_uncorrected, x).item():.2f}"
-                            for m in metrics
-                        ),
-                        "\n".join(
-                            f"{m.__class__.__name__} {m(x_corrected, x).item():.2f}"
-                            for m in metrics
-                        ),
+                        "\n".join(uncorrected_scores),
+                        "\n".join(corrected_scores),
                     ],
                     show=False,
                     close=True,

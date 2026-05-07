@@ -37,7 +37,8 @@ class CartesianUndersampling(SelfAdjointMultiplicativeMaskDistortion):
         ``"uniform_random"``, ``"variable_density_random"``, and
         ``"equispaced"``. Defaults to ``"variable_density_random"``.
     :param int axis: Axis along which to apply undersampling. Default is -2
-        (phase-encode for 4D tensors), can also be -3 for 5D tensors.
+        (phase-encode for 4D tensors), can also be -1 for readout/column
+        masking or -3 for the slice/depth axis in 5D tensors.
     :param int | None seed: Random seed for reproducible mask generation.
         If None, uses unseeded randomness (not recommended for reproducibility).
         Has no effect when ``pattern="equispaced"`` because that pattern is
@@ -57,8 +58,8 @@ class CartesianUndersampling(SelfAdjointMultiplicativeMaskDistortion):
         if not 0.0 < keep_fraction <= 1.0:
             raise ValueError(f"keep_fraction must be in (0, 1], got {keep_fraction}")
 
-        if axis not in (-2, -3):
-            raise ValueError(f"axis must be -2 or -3, got {axis}")
+        if axis not in (-1, -2, -3):
+            raise ValueError(f"axis must be -1, -2, or -3, got {axis}")
 
         if pattern not in PATTERNS:
             raise ValueError(f"pattern must be one of {sorted(PATTERNS)}, got {pattern!r}")
