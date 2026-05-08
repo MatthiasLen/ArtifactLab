@@ -61,7 +61,9 @@ from mri_recon.reconstruction import (
 REPO_ROOT = Path(__file__).resolve().parents[1]
 REPORT_DIR = Path("reports") / "oasis_inference_plot"
 DEFAULT_SPLIT_CSV = REPO_ROOT / "reconstruction_only" / "splits" / "oasis_balanced_test.csv"
-DEFAULT_MANIFEST_PATH = REPO_ROOT / "reconstruction_only" / "checkpoints" / "manifest.json"
+DEFAULT_MANIFEST_PATH = (
+    REPO_ROOT / "downloads" / "oasis_singlecoil_unet" / "checkpoints" / "manifest.json"
+)
 
 REPORT_DIR.mkdir(parents=True, exist_ok=True)
 

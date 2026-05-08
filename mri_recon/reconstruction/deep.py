@@ -114,6 +114,7 @@ class FastMRISinglecoilUnetReconstructor(dinv.models.Reconstructor):
     )
     MODEL_SHA256 = "8f41f67d8eab2cca31ffff632a733a8712b1171c11f13e95b6f90fdf63399f9e"
     MODEL_FILENAME = "knee_sc_leaderboard_state_dict.pt"
+    MODEL_DIR = Path(__file__).resolve().parents[2] / "downloads" / "fastmri_singlecoil_unet"
     UNET_KWARGS = {
         "in_chans": 1,
         "out_chans": 1,
@@ -134,7 +135,7 @@ class FastMRISinglecoilUnetReconstructor(dinv.models.Reconstructor):
         state_dict_path = (
             Path(state_dict_file).expanduser()
             if state_dict_file is not None
-            else Path(__file__).resolve().parents[2] / self.MODEL_FILENAME
+            else self.MODEL_DIR / self.MODEL_FILENAME
         )
 
         if state_dict_file is None:
@@ -226,8 +227,8 @@ class OASISSinglecoilUnetReconstructor(dinv.models.Reconstructor):
         "num_pool_layers": 4,
         "drop_prob": 0.0,
     }
-    ASSET_ROOT = Path(__file__).resolve().parents[2] / "reconstruction_only"
-    CHECKPOINTS_DIR = ASSET_ROOT / "checkpoints"
+    MODEL_DIR = Path(__file__).resolve().parents[2] / "downloads" / "oasis_singlecoil_unet"
+    CHECKPOINTS_DIR = MODEL_DIR / "checkpoints"
     MANIFEST_PATH = CHECKPOINTS_DIR / "manifest.json"
     MANIFEST_FILE_ID = "1zefZh7Vh5k2ssXKpLxV3Xnwf3S6dqu6I"
     MANIFEST_SHA256 = "d5180c49fcaafe7ba439319dcf4afe4d7489473bea437418d836070ecd506952"

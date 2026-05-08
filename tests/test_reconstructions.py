@@ -153,9 +153,9 @@ def test_oasis_singlecoil_unet_reconstructor_loads_lightning_checkpoint(device, 
 
 
 def test_oasis_resolve_default_checkpoint_downloads_manifest_and_checkpoint(tmp_path, monkeypatch):
-    asset_root = tmp_path / "reconstruction_only"
-    manifest_path = asset_root / "checkpoints" / "manifest.json"
-    checkpoint_path = asset_root / "checkpoints" / "oasis_balanced_seed24_accel4.ckpt"
+    model_dir = tmp_path / "downloads" / "oasis_singlecoil_unet"
+    manifest_path = model_dir / "checkpoints" / "manifest.json"
+    checkpoint_path = model_dir / "checkpoints" / "oasis_balanced_seed24_accel4.ckpt"
     manifest_bytes = (
         b'{"checkpoints": {"4": {"filename": "checkpoints/oasis_balanced_seed24_accel4.ckpt"}}}'
     )
