@@ -1,10 +1,16 @@
+import json
 from pathlib import Path
+from typing import Optional
 
 import deepinv as dinv
 import torch
 
 from ._fastmri_unet import Unet
-from ..utils import download_file_with_sha256, matches_sha256
+from ..utils import (
+    download_file_with_sha256,
+    download_google_drive_file_with_sha256,
+    matches_sha256,
+)
 
 
 class RAMReconstructor(dinv.models.Reconstructor):
@@ -194,15 +200,21 @@ class OASISSinglecoilUnetReconstructor(dinv.models.Reconstructor):
     """Wrapper for a trained OASIS single-coil U-Net model.
 
     The model reuses the repository's fastMRI-derived :class:`Unet` module, but
-    loads an OASIS checkpoint supplied by the caller. The forward pass converts
+    can also download the packaged checkpoint manifest and checkpoint on demand
+    when no explicit checkpoint path is supplied. The forward pass converts
     k-space to a zero-filled magnitude image, applies per-slice instance
     normalization, runs the U-Net, then rescales the prediction back to the
     adjoint-image intensity range.
 
     Parameters
     ----------
-    checkpoint_file : str
-        Path to the trained OASIS U-Net checkpoint.
+    checkpoint_file : str, optional
+        Path to the trained OASIS U-Net checkpoint. If omitted, the reconstructor
+        downloads the packaged checkpoint for ``acceleration``.
+    acceleration : int, optional
+        Packaged checkpoint acceleration factor used when ``checkpoint_file`` is omitted.
+    manifest_path : str, optional
+        Override path for the downloaded or cached packaged checkpoint manifest.
     device : torch.device, optional
         Device on which to run inference.
     """
@@ -214,10 +226,85 @@ class OASISSinglecoilUnetReconstructor(dinv.models.Reconstructor):
         "num_pool_layers": 4,
         "drop_prob": 0.0,
     }
+    ASSET_ROOT = Path(__file__).resolve().parents[2] / "reconstruction_only"
+    CHECKPOINTS_DIR = ASSET_ROOT / "checkpoints"
+    MANIFEST_PATH = CHECKPOINTS_DIR / "manifest.json"
+    MANIFEST_FILE_ID = "1zefZh7Vh5k2ssXKpLxV3Xnwf3S6dqu6I"
+    MANIFEST_SHA256 = "d5180c49fcaafe7ba439319dcf4afe4d7489473bea437418d836070ecd506952"
+    CHECKPOINT_FILE_IDS = {
+        "4": "11s6YeM6_YJeD4wcrn24jyMjyj_vX2ANU",
+        "8": "1w8PDiYpr2xBPXahzRllhZjQT1yoMGXg-",
+        "10": "1djJ2i0uYP4PT070CS0xx9nNJ41JmSFhh",
+    }
+    CHECKPOINT_SHA256 = {
+        "4": "4fcefa9860cb7895e581a0de8f90bd7f188ae1c0b5e428a4a07519dd2561ac29",
+        "8": "2cd4c44e3c7a3870adbe5090b2bfaae044f5e3f0b4bcaf2b1fc29969e5e6b9ca",
+        "10": "90e3d9b17aa0f9fd43aaf090c152edcbdead1b9be41a076594e41098db7befa8",
+    }
+
+    @classmethod
+    def ensure_manifest(cls, manifest_path: Optional[Path] = None) -> Path:
+        """Ensure the packaged OASIS checkpoint manifest exists locally and is verified."""
+
+        resolved_manifest_path = (
+            manifest_path.expanduser().resolve() if manifest_path is not None else cls.MANIFEST_PATH
+        )
+        if not matches_sha256(resolved_manifest_path, cls.MANIFEST_SHA256):
+            download_google_drive_file_with_sha256(
+                cls.MANIFEST_FILE_ID,
+                resolved_manifest_path,
+                cls.MANIFEST_SHA256,
+                label="OASIS checkpoint manifest",
+            )
+        return resolved_manifest_path
+
+    @classmethod
+    def resolve_default_checkpoint(
+        cls,
+        acceleration: int,
+        manifest_path: Optional[Path] = None,
+    ) -> Path:
+        """Resolve and download the packaged OASIS checkpoint for a given acceleration."""
+
+        resolved_manifest_path = cls.ensure_manifest(manifest_path)
+        with resolved_manifest_path.open("r", encoding="utf-8") as handle:
+            manifest = json.load(handle)
+
+        key = str(acceleration)
+        checkpoints = manifest.get("checkpoints", {})
+        if key not in checkpoints:
+            available = ", ".join(sorted(checkpoints))
+            raise ValueError(
+                f"No packaged checkpoint for acceleration {acceleration}. Available: {available}."
+            )
+
+        if key not in cls.CHECKPOINT_FILE_IDS or key not in cls.CHECKPOINT_SHA256:
+            raise ValueError(
+                f"No automated download metadata is configured for acceleration {acceleration}."
+            )
+
+        filename = Path(checkpoints[key]["filename"])
+        checkpoint_path = (
+            filename
+            if filename.is_absolute()
+            else (resolved_manifest_path.parent.parent / filename)
+        ).resolve()
+
+        if not matches_sha256(checkpoint_path, cls.CHECKPOINT_SHA256[key]):
+            download_google_drive_file_with_sha256(
+                cls.CHECKPOINT_FILE_IDS[key],
+                checkpoint_path,
+                cls.CHECKPOINT_SHA256[key],
+                label=f"OASIS checkpoint x{acceleration}",
+            )
+
+        return checkpoint_path
 
     def __init__(
         self,
-        checkpoint_file: str,
+        checkpoint_file: str | None = None,
+        acceleration: int = 4,
+        manifest_path: str | None = None,
         device: torch.device = None,
     ) -> None:
         super().__init__()
@@ -226,9 +313,18 @@ class OASISSinglecoilUnetReconstructor(dinv.models.Reconstructor):
             device = torch.device("cpu")
         self.device = device
 
-        checkpoint_path = Path(checkpoint_file).expanduser()
-        if not checkpoint_path.exists():
-            raise FileNotFoundError(f"Checkpoint not found: {checkpoint_path}")
+        if checkpoint_file is None:
+            resolved_manifest_path = (
+                Path(manifest_path).expanduser() if manifest_path is not None else None
+            )
+            checkpoint_path = self.resolve_default_checkpoint(
+                acceleration=acceleration,
+                manifest_path=resolved_manifest_path,
+            )
+        else:
+            checkpoint_path = Path(checkpoint_file).expanduser()
+            if not checkpoint_path.exists():
+                raise FileNotFoundError(f"Checkpoint not found: {checkpoint_path}")
 
         # Use the helper to obtain a normalized state_dict (handles plain or Lightning)
         state_dict = _load_unet_checkpoint_state(checkpoint_path, device)
