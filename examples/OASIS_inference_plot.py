@@ -7,7 +7,6 @@ Usage:
 from __future__ import annotations
 
 import argparse
-import json
 import os
 import sys
 from collections import OrderedDict
@@ -366,21 +365,10 @@ def resolve_oasis_checkpoint(
     if checkpoint is not None:
         return checkpoint.expanduser().resolve()
 
-    with manifest_path.open("r", encoding="utf-8") as handle:
-        manifest = json.load(handle)
-
-    checkpoints = manifest.get("checkpoints", {})
-    key = str(acceleration)
-    if key not in checkpoints:
-        available = ", ".join(sorted(checkpoints))
-        raise ValueError(
-            f"No packaged checkpoint for acceleration {acceleration}. Available: {available}."
-        )
-
-    filename = Path(checkpoints[key]["filename"])
-    if filename.is_absolute():
-        return filename
-    return (manifest_path.parent.parent / filename).resolve()
+    return OASISSinglecoilUnetReconstructor.resolve_default_checkpoint(
+        acceleration=acceleration,
+        manifest_path=manifest_path,
+    )
 
 
 def choose_algorithm(

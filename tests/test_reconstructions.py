@@ -150,3 +150,105 @@ def test_oasis_singlecoil_unet_reconstructor_loads_lightning_checkpoint(device, 
 
     assert x_hat.shape == x.shape
     assert torch.allclose(x_hat[:, 1], torch.zeros_like(x_hat[:, 1]))
+
+
+def test_oasis_resolve_default_checkpoint_downloads_manifest_and_checkpoint(tmp_path, monkeypatch):
+    asset_root = tmp_path / "reconstruction_only"
+    manifest_path = asset_root / "checkpoints" / "manifest.json"
+    checkpoint_path = asset_root / "checkpoints" / "oasis_balanced_seed24_accel4.ckpt"
+    manifest_bytes = (
+        b'{"checkpoints": {"4": {"filename": "checkpoints/oasis_balanced_seed24_accel4.ckpt"}}}'
+    )
+    checkpoint_bytes = b"fake-oasis-checkpoint"
+    downloads = []
+
+    monkeypatch.setattr(
+        OASISSinglecoilUnetReconstructor,
+        "MANIFEST_SHA256",
+        __import__("hashlib").sha256(manifest_bytes).hexdigest(),
+    )
+    monkeypatch.setattr(
+        OASISSinglecoilUnetReconstructor,
+        "CHECKPOINT_SHA256",
+        {"4": __import__("hashlib").sha256(checkpoint_bytes).hexdigest()},
+    )
+    monkeypatch.setattr(
+        OASISSinglecoilUnetReconstructor,
+        "CHECKPOINT_FILE_IDS",
+        {"4": "checkpoint-file-id"},
+    )
+
+    def fake_download(file_id, destination, expected_sha256, **kwargs):
+        downloads.append((file_id, destination))
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        if file_id == "1zefZh7Vh5k2ssXKpLxV3Xnwf3S6dqu6I":
+            destination.write_bytes(manifest_bytes)
+        elif file_id == "checkpoint-file-id":
+            destination.write_bytes(checkpoint_bytes)
+        else:
+            raise AssertionError(f"Unexpected file_id: {file_id}")
+
+    monkeypatch.setattr(
+        "mri_recon.reconstruction.deep.download_google_drive_file_with_sha256",
+        fake_download,
+    )
+
+    resolved = OASISSinglecoilUnetReconstructor.resolve_default_checkpoint(
+        4, manifest_path=manifest_path
+    )
+
+    assert resolved == checkpoint_path.resolve()
+    assert manifest_path.read_bytes() == manifest_bytes
+    assert checkpoint_path.read_bytes() == checkpoint_bytes
+    assert downloads == [
+        ("1zefZh7Vh5k2ssXKpLxV3Xnwf3S6dqu6I", manifest_path.resolve()),
+        ("checkpoint-file-id", checkpoint_path.resolve()),
+    ]
+
+
+def test_oasis_singlecoil_unet_reconstructor_uses_packaged_checkpoint_defaults(
+    device, tmp_path, monkeypatch
+):
+    monkeypatch.setattr(
+        OASISSinglecoilUnetReconstructor,
+        "UNET_KWARGS",
+        {
+            "in_chans": 1,
+            "out_chans": 1,
+            "chans": 8,
+            "num_pool_layers": 2,
+            "drop_prob": 0.0,
+        },
+    )
+
+    weights_path = tmp_path / "oasis_unet_packaged_weights.ckpt"
+    state_dict = Unet(**OASISSinglecoilUnetReconstructor.UNET_KWARGS).state_dict()
+    torch.save(
+        {"state_dict": {f"unet.{key}": value for key, value in state_dict.items()}},
+        weights_path,
+    )
+
+    captured = {}
+
+    def fake_resolve(cls, acceleration, manifest_path=None):
+        captured["acceleration"] = acceleration
+        captured["manifest_path"] = manifest_path
+        return weights_path
+
+    monkeypatch.setattr(
+        OASISSinglecoilUnetReconstructor,
+        "resolve_default_checkpoint",
+        classmethod(fake_resolve),
+    )
+
+    model = OASISSinglecoilUnetReconstructor(
+        acceleration=8,
+        manifest_path=str(tmp_path / "manifest.json"),
+        device=device,
+    )
+
+    assert captured == {
+        "acceleration": 8,
+        "manifest_path": tmp_path / "manifest.json",
+    }
+    assert isinstance(model.model, Unet)
