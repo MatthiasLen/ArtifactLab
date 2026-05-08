@@ -53,7 +53,7 @@ uv run python -c "import torch; print(torch.__version__, torch.cuda.is_available
 
 ## OASIS Inference Example
 
-Run the OASIS plotting example with a local OASIS root folder. On first use, the packaged OASIS checkpoint manifest and the requested checkpoint are downloaded automatically into `reconstruction_only/checkpoints/`.
+Run the OASIS plotting example with a local OASIS root folder. On first use, the packaged OASIS checkpoint manifest and the requested checkpoint are downloaded automatically into `downloads/oasis_singlecoil_unet/checkpoints/`.
 If you also need the packaged split CSVs, download the `reconstruction_only/` folder from [Google Drive](https://drive.google.com/drive/folders/1YPmjiQxy3odiUq8gwYqwOGhoXbGRcSXp?usp=drive_link).
 
 ```bash
