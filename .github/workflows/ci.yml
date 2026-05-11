@@ -9,7 +9,6 @@ on:
 jobs:
   pre-commit:
     runs-on: ubuntu-24.04
-
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -24,16 +23,9 @@ jobs:
         with:
           python-version-file: pyproject.toml
 
-      - name: Cache virtual environment
-        id: cache-venv
-        uses: actions/cache@v4
-        with:
-          path: .venv
-          key: venv-dev-${{ runner.os }}-${{ hashFiles('uv.lock') }}
-
-      - name: Sync project dependencies
-        if: steps.cache-venv.outputs.cache-hit != 'true'
-        run: uv sync --dev
+      - name: Install dependencies
+        # This installs main dependencies + the [dependency-groups] dev group
+        run: uv sync --all-groups
 
       - name: Cache pre-commit hook environments
         uses: actions/cache@v4
@@ -46,7 +38,6 @@ jobs:
 
   tests:
     runs-on: ubuntu-24.04
-
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -61,16 +52,8 @@ jobs:
         with:
           python-version-file: pyproject.toml
 
-      - name: Cache virtual environment
-        id: cache-venv
-        uses: actions/cache@v4
-        with:
-          path: .venv
-          key: venv-runtime-${{ runner.os }}-${{ hashFiles('uv.lock') }}
-
-      - name: Sync project dependencies
-        if: steps.cache-venv.outputs.cache-hit != 'true'
-        run: uv sync --extra dev
+      - name: Install dependencies
+        run: uv sync --all-groups
 
       - name: Run tests
         run: uv run pytest
