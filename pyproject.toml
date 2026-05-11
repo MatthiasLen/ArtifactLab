@@ -1,7 +1,7 @@
 [project]
-name = "mri-recon"
+name = "ArtifactLab"
 version = "0.1.0"
-description = "Add your description here"
+description = "Medical image distortions and reconstruction"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
