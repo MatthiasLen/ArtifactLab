@@ -1,8 +1,8 @@
-# mri_recon
+# ArtifactLab
 
 [![CI](https://github.com/MatthiasLen/mri_recon/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/MatthiasLen/mri_recon/actions/workflows/ci.yml)
 
-MRI reconstruction playground for the MRI Metrics project.
+Reconstruction playground for the MRI Recon Metrics Reloaded workgroup.
 
 ## Implemented Reconstruction Algorithms
 
