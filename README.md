@@ -43,7 +43,7 @@ Reconstruction playground for the MRI Recon Metrics Reloaded workgroup.
 ## Distortions Possibly Planned
 - Rician Noise (Noise Level (Glancing))
 - Modification of sensitivity map (RoI Homogeneity (Glancing))
-- Pixel size change by cropping or padding k-Space (Pixel Resolution/Spacing (General Properties))
+
 
 ## uv Environment Notes
 
