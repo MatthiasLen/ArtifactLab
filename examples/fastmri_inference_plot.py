@@ -37,6 +37,7 @@ DISTORTIONS = [
     "Cartesian undersampling (uniform random, zero ACS)",
     "Cartesian undersampling (equispaced)",
     "Cartesian undersampling (equispaced, zero ACS)",
+    "Partial Fourier",
     "Phase-encode ghosting",
     "Segmented translation motion",
     "Segmented rotational motion",
@@ -180,6 +181,13 @@ def choose_distortion(name: str) -> BaseDistortion:
                 center_fraction=0.0,
                 pattern="equispaced",
                 seed=42,
+            )
+        case "Partial Fourier":
+            return PartialFourierDistortion(
+                partial_fraction=0.7,
+                center_fraction=0.1,
+                axis=-2,
+                side="high",
             )
         case "Anisotropic LP":
             return AnisotropicResolutionReduction(

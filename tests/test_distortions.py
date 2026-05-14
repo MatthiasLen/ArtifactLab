@@ -18,6 +18,7 @@ from mri_recon.distortions import (
     IsotropicResolutionReduction,
     KaiserTaperResolutionReduction,
     OffCenterAnisotropicGaussianKspaceBiasField,
+    PartialFourierDistortion,
     PhaseEncodeGhostingDistortion,
     RadialHighPassEmphasisDistortion,
     RotationalMotionDistortion,
@@ -34,6 +35,7 @@ DISTORTIONS = [
     "Hann taper LP",
     "Kaiser taper LP",
     "Cartesian undersampling",
+    "Partial Fourier",
     "Radial high-pass emphasis",
     "Gaussian bias field",
     "Off-center anisotropic Gaussian bias field",
@@ -49,6 +51,7 @@ EXACT_OPERATOR_DISTORTIONS = {
     "Isotropic LP",
     "Anisotropic LP",
     "Cartesian undersampling",
+    "Partial Fourier",
     "Phase-encode ghosting",
     "Translation motion",
     "Segmented translation motion",
@@ -90,6 +93,13 @@ def choose_distortion(name):
                 keep_fraction=0.25,
                 center_fraction=0.2,
                 seed=42,
+            )
+        case "Partial Fourier":
+            return PartialFourierDistortion(
+                partial_fraction=0.7,
+                center_fraction=0.1,
+                axis=-2,
+                side="high",
             )
         case "Radial high-pass emphasis":
             return RadialHighPassEmphasisDistortion(alpha=0.4)
@@ -227,6 +237,52 @@ def test_anisotropic_resolution_reduction_identity_at_full_cutoffs(device):
     y_distorted = distortion.A(y)
 
     assert torch.equal(y_distorted, y)
+
+
+def test_partial_fourier_distortion_identity_at_full_fraction(device):
+    distortion = PartialFourierDistortion(
+        partial_fraction=1.0,
+        center_fraction=0.1,
+        axis=-2,
+        side="high",
+    )
+    y = torch.randn((1, 2, 32, 32), device=device)
+
+    assert torch.equal(distortion.A(y), y)
+
+
+def test_partial_fourier_distortion_retains_contiguous_asymmetric_region(device):
+    distortion = PartialFourierDistortion(
+        partial_fraction=0.7,
+        center_fraction=0.1,
+        axis=-2,
+        side="high",
+    )
+
+    retained_indices = distortion._generate_1d_mask(16).nonzero().flatten().tolist()
+
+    assert retained_indices == list(range(5, 16))
+
+
+def test_partial_fourier_distortion_side_changes_retained_half(device):
+    high = PartialFourierDistortion(
+        partial_fraction=0.7,
+        center_fraction=0.1,
+        axis=-2,
+        side="high",
+    )
+    low = PartialFourierDistortion(
+        partial_fraction=0.7,
+        center_fraction=0.1,
+        axis=-2,
+        side="low",
+    )
+
+    high_indices = high._generate_1d_mask(16).nonzero().flatten().tolist()
+    low_indices = low._generate_1d_mask(16).nonzero().flatten().tolist()
+
+    assert high_indices == list(range(5, 16))
+    assert low_indices == list(range(0, 11))
 
 
 def test_hann_taper_resolution_reduction_has_smooth_transition(device):
