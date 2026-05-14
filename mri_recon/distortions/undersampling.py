@@ -8,6 +8,7 @@ from mri_recon.distortions.base import SelfAdjointMultiplicativeMaskDistortion
 
 
 PATTERNS = {"uniform_random", "variable_density_random", "equispaced"}
+PARTIAL_FOURIER_SIDES = {"low", "high"}
 
 # Lorentzian offset that controls how steeply the variable-density weights
 # fall off with normalized distance from k-space center.
@@ -289,3 +290,126 @@ class CartesianUndersampling(SelfAdjointMultiplicativeMaskDistortion):
         mask = mask_1d.reshape(expand_shape)
 
         return mask
+
+
+class PartialFourierDistortion(SelfAdjointMultiplicativeMaskDistortion):
+    """Asymmetric contiguous Cartesian mask for partial Fourier acquisition.
+
+    This distortion simulates partial Fourier MRI acquisition by keeping a
+    contiguous asymmetric region of k-space along one encoding axis while
+    preserving a centered low-frequency block. Unlike symmetric resolution
+    reduction, the retained support extends farther on one side of k-space than
+    the other. Unlike Cartesian undersampling, the retained region is
+    contiguous rather than sparse throughout the original support.
+
+    The distortion models the acquired k-space mask only. It does not attempt
+    to reconstruct or infer the missing region with homodyne, POCS, or any
+    other partial-Fourier-specific reconstruction method.
+
+    :param float partial_fraction: Fraction of lines retained along the chosen
+        axis in ``[0.5, 1]``. ``1.0`` recovers the identity operator.
+    :param float center_fraction: Fraction of lines reserved for a centered,
+        fully retained low-frequency block in ``[0, 1]``. This block must not
+        exceed ``partial_fraction``.
+    :param int axis: Axis along which to apply the asymmetric truncation. The
+        default ``-2`` matches the repository's standard phase-encode axis.
+    :param str side: Side that retains more support outside the centered block.
+        Supported values are ``"low"`` and ``"high"``.
+    """
+
+    def __init__(
+        self,
+        partial_fraction: float = 0.7,
+        center_fraction: float = 0.1,
+        axis: int = -2,
+        side: str = "high",
+    ) -> None:
+        super().__init__()
+
+        if not 0.5 <= partial_fraction <= 1.0:
+            raise ValueError(f"partial_fraction must be in [0.5, 1], got {partial_fraction}")
+        if not 0.0 <= center_fraction <= 1.0:
+            raise ValueError(f"center_fraction must be in [0, 1], got {center_fraction}")
+        if center_fraction > partial_fraction:
+            raise ValueError(
+                f"center_fraction ({center_fraction}) must not exceed "
+                f"partial_fraction ({partial_fraction})"
+            )
+        if axis not in (-1, -2, -3):
+            raise ValueError(f"axis must be -1, -2, or -3, got {axis}")
+        if side not in PARTIAL_FOURIER_SIDES:
+            raise ValueError(f"side must be one of {sorted(PARTIAL_FOURIER_SIDES)}, got {side!r}")
+
+        self.partial_fraction = partial_fraction
+        self.center_fraction = center_fraction
+        self.axis = axis
+        self.side = side
+        self._cached_mask = None
+        self._cached_shape = None
+        self._cached_device: torch.device | None = None
+
+    def _mask(self, shape: tuple[int, ...], device: torch.device) -> torch.Tensor:
+        """Generate a deterministic partial Fourier mask.
+
+        :param tuple[int, ...] shape: k-space tensor shape.
+        :param torch.device device: Device for the mask.
+        :returns: Binary mask broadcastable to ``shape``.
+        :rtype: torch.Tensor
+        """
+        if (
+            self._cached_mask is not None
+            and self._cached_shape == shape
+            and self._cached_device == device
+        ):
+            return self._cached_mask
+
+        axis_size = shape[self.axis]
+        mask_1d = self._generate_1d_mask(axis_size)
+        mask = self._expand_mask_to_shape(mask_1d, shape).to(device)
+
+        self._cached_mask = mask
+        self._cached_shape = shape
+        self._cached_device = device
+        return mask
+
+    def _generate_1d_mask(self, axis_size: int) -> torch.Tensor:
+        """Generate a 1D contiguous asymmetric partial Fourier mask."""
+        num_keep = max(1, int(round(axis_size * self.partial_fraction)))
+        num_center = int(round(axis_size * self.center_fraction))
+        num_center = min(num_center, num_keep)
+
+        mask = torch.zeros(axis_size, dtype=torch.float32)
+
+        center_start = (axis_size - num_center) // 2
+        center_end = center_start + num_center
+        remaining = num_keep - num_center
+
+        low_available = center_start
+        high_available = axis_size - center_end
+
+        if self.side == "high":
+            extra_high = min(remaining, high_available)
+            extra_low = remaining - extra_high
+        else:
+            extra_low = min(remaining, low_available)
+            extra_high = remaining - extra_low
+
+        start = center_start - extra_low
+        end = center_end + extra_high
+
+        mask[start:end] = 1.0
+        return mask
+
+    def _expand_mask_to_shape(
+        self, mask_1d: torch.Tensor, target_shape: tuple[int, ...]
+    ) -> torch.Tensor:
+        """Expand a 1D mask to the full k-space shape."""
+        ndim = len(target_shape)
+        axis = self.axis if self.axis >= 0 else ndim + self.axis
+
+        expand_shape = list(target_shape)
+        for i in range(len(expand_shape)):
+            if i != axis:
+                expand_shape[i] = 1
+
+        return mask_1d.reshape(expand_shape)

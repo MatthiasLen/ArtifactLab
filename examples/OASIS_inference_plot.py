@@ -40,6 +40,7 @@ from mri_recon.distortions import (
     IsotropicResolutionReduction,
     KaiserTaperResolutionReduction,
     OffCenterAnisotropicGaussianKspaceBiasField,
+    PartialFourierDistortion,
     PhaseEncodeGhostingDistortion,
     RadialHighPassEmphasisDistortion,
     RotationalMotionDistortion,
@@ -86,6 +87,7 @@ DISTORTIONS = [
     "Cartesian undersampling (uniform random, zero ACS)",
     "Cartesian undersampling (equispaced)",
     "Cartesian undersampling (equispaced, zero ACS)",
+    "Partial Fourier",
     "Phase-encode ghosting",
     "Segmented translation motion",
     "Translation motion",
@@ -457,6 +459,13 @@ def choose_distortion(
                 pattern="equispaced",
                 axis=-1,
                 seed=42,
+            )
+        case "Partial Fourier":
+            return PartialFourierDistortion(
+                partial_fraction=0.7,
+                center_fraction=0.1,
+                axis=-1,
+                side="high",
             )
         case "Phase-encode ghosting":
             return PhaseEncodeGhostingDistortion(

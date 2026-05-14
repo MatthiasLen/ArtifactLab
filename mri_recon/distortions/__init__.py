@@ -19,4 +19,4 @@ from .resolution import (
     KaiserTaperResolutionReduction,
     RadialHighPassEmphasisDistortion,
 )
-from .undersampling import CartesianUndersampling
+from .undersampling import CartesianUndersampling, PartialFourierDistortion
