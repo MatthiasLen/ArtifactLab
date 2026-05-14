@@ -80,11 +80,37 @@ class OffCenterAnisotropicGaussianKspaceBiasField(BaseDistortion):
     The gain peaks at an offset location in k-space, decays with different widths
     along ``kx`` and ``ky``, and is normalized to unit maximum on the sampled grid.
 
-    :param float width_x_fraction: Gaussian width along the normalized ``kx`` direction.
-    :param float width_y_fraction: Gaussian width along the normalized ``ky`` direction.
-    :param float center_x_fraction: Center offset along normalized ``kx`` in ``[-1, 1]``.
-    :param float center_y_fraction: Center offset along normalized ``ky`` in ``[-1, 1]``.
-    :param float edge_gain: Baseline gain far from the Gaussian peak. Must lie in ``(0, 1]``.
+    Note: This class can also approximate a readout-decay-like blur when used in a
+    centered anisotropic configuration. To mimic stronger attenuation along the
+    readout direction, keep the Gaussian centered at DC with
+    ``center_x_fraction=0.0`` and ``center_y_fraction=0.0``, choose a narrower
+    width along the readout axis than along the orthogonal axis, and reduce
+    ``edge_gain`` below ``1.0``. For example, a setting such as
+    ``width_x_fraction < width_y_fraction`` with a moderate ``edge_gain``
+    produces a smooth directional loss of high-frequency content that can
+    resemble readout-decay blur.
+
+    This remains a phenomenological approximation rather than an explicit
+    time-ordered readout-decay model. It applies a smooth multiplicative
+    k-space weighting, not a physically parameterized echo-train decay.
+
+    :param float width_x_fraction: Gaussian width along the normalized ``kx``
+        direction. Smaller values produce stronger attenuation away from the
+        center along ``kx``. When ``kx`` is the readout axis, choosing
+        ``width_x_fraction < width_y_fraction`` approximates readout-direction
+        blur.
+    :param float width_y_fraction: Gaussian width along the normalized ``ky``
+        direction. Larger values preserve more support along ``ky`` relative
+        to ``kx``.
+    :param float center_x_fraction: Center offset along normalized ``kx`` in
+        ``[-1, 1]``. Use ``0.0`` for a centered readout-decay-like
+        approximation.
+    :param float center_y_fraction: Center offset along normalized ``ky`` in
+        ``[-1, 1]``. Use ``0.0`` for a centered readout-decay-like
+        approximation.
+    :param float edge_gain: Baseline gain far from the Gaussian peak. Must lie
+        in ``(0, 1]``. Smaller values strengthen the peripheral attenuation
+        and therefore the resulting directional blur.
     """
 
     def __init__(
