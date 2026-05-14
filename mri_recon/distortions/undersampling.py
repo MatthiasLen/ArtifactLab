@@ -17,32 +17,48 @@ _VD_WEIGHT_OFFSET: float = 0.05
 
 
 class CartesianUndersampling(SelfAdjointMultiplicativeMaskDistortion):
-    """Cartesian k-space undersampling along phase-encode direction.
+    """Cartesian k-space undersampling along one encoding direction.
 
-    This distortion simulates true MRI acquisition undersampling by applying a
-    binary sampling mask along the phase-encode direction (default). The mask
-    keeps a contiguous center region (ACS - Auto-Calibration Signal) fully
-    sampled and randomly undersamples the periphery.
+    This distortion simulates sub-Nyquist MRI acquisition by keeping only a
+    subset of Cartesian k-space lines along a chosen axis, phase encode by
+    default. A contiguous low-frequency center region (ACS) may be retained
+    fully, while the peripheral lines are sampled using a configurable random
+    or equispaced pattern.
 
-    The mask is deterministic given a shape and seed, ensuring reproducibility.
+    This is fundamentally different from resolution reduction. In
+    resolution-reduction distortions, the maximum retained k-space extent is
+    reduced, which primarily causes blur because high spatial frequencies are
+    absent. In Cartesian undersampling, the original k-space extent is still
+    targeted, but many lines inside that extent are skipped. The dominant
+    consequence is aliasing or incoherent undersampling artifact, not a simple
+    broader point-spread function.
 
-    :param float keep_fraction: Fraction of phase-encode lines to keep in
-        ``(0, 1]``. For example, 0.25 keeps 25% of phase-encode lines.
-    :param float center_fraction: Fraction of phase-encode lines reserved for
-        the contiguous, fully-sampled ACS region in ``[0, 1]``. Defaults to
-        ``0.5 * keep_fraction``, leaving part of the acquisition budget for
-        randomized peripheral line sampling. Set to ``0`` to sample without a
-        guaranteed ACS block.
+    ``keep_fraction`` controls the total sampling budget along the chosen axis.
+    ``center_fraction`` reserves part of that budget for a fully sampled ACS
+    block near k-space center, which is important for many parallel imaging and
+    learned reconstruction pipelines. ``pattern`` controls how the remaining
+    peripheral lines are selected. ``axis`` determines which Cartesian encoding
+    direction is undersampled. ``seed`` makes the random patterns reproducible.
+
+    The mask is deterministic for a given shape, device, and seed.
+
+    :param float keep_fraction: Fraction of lines kept along the undersampled
+        axis in ``(0, 1]``. For example, ``0.25`` keeps 25% of the lines and
+        corresponds to approximately 4x acceleration when applied to a single
+        encoding direction.
+    :param float center_fraction: Fraction of lines along the undersampled axis
+        reserved for a contiguous, fully sampled ACS region in ``[0, 1]``.
+        Defaults to ``0.5 * keep_fraction`` so that part of the sampling budget
+        remains available for peripheral sampling. ``0`` disables the ACS block.
     :param str pattern: Peripheral sampling pattern. Supported values are
         ``"uniform_random"``, ``"variable_density_random"``, and
-        ``"equispaced"``. Defaults to ``"variable_density_random"``.
-    :param int axis: Axis along which to apply undersampling. Default is -2
-        (phase-encode for 4D tensors), can also be -1 for readout/column
-        masking or -3 for the slice/depth axis in 5D tensors.
+        ``"equispaced"``. Variable-density sampling favors low-frequency lines
+        near the ACS boundary; equispaced sampling is deterministic.
+    :param int axis: Axis along which to undersample. The default ``-2``
+        corresponds to phase encode for the repository's standard 2D k-space
+        convention. Other values allow undersampling along readout or depth.
     :param int | None seed: Random seed for reproducible mask generation.
-        If None, uses unseeded randomness (not recommended for reproducibility).
-        Has no effect when ``pattern="equispaced"`` because that pattern is
-        fully deterministic and uses no randomness.
+        Ignored by the deterministic ``"equispaced"`` pattern.
     """
 
     def __init__(

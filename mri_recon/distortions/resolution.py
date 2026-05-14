@@ -73,14 +73,33 @@ def _smooth_radial_low_pass_mask(
 
 
 class IsotropicResolutionReduction(SelfAdjointMultiplicativeMaskDistortion):
-    """Low-pass truncation with a circular mask.
+    """Isotropic in-plane resolution reduction with a circular hard cutoff.
 
-    This applies
-    ``M_out(kx, ky) = M(kx, ky) * 1[r(kx, ky) <= K]``
-    where ``K`` is ``radius_fraction`` on the normalized radial grid.
+    This distortion keeps only a centered circular region of k-space:
+    ``M_out(kx, ky) = M(kx, ky) * 1[r(kx, ky) <= K]``, where ``K`` is the
+    retained radial support on the normalized frequency grid.
 
-    :param float radius_fraction: Normalized cutoff radius in ``(0, 1]``.
-        Frequencies outside this radius are set to zero.
+    In MRI terms, this models reduced in-plane spatial resolution at fixed
+    field of view by removing high-frequency content equally in all in-plane
+    directions. The reconstructed image keeps the same matrix size, but fine
+    detail is lost because the maximum sampled k-space extent is smaller. The
+    resulting effect is isotropic blur from limited k-space support.
+
+    The parameter ``radius_fraction`` controls how much of the centered
+    low-frequency region is retained. Smaller values preserve only the k-space
+    core and therefore produce stronger blur and a broader point-spread
+    function. A value of ``1.0`` keeps the full sampled support and recovers
+    the identity operator.
+
+    Compared with :class:`AnisotropicResolutionReduction`, this class applies
+    the same reduction in all directions rather than separately along readout
+    and phase encode. Compared with :class:`CartesianUndersampling`, it models
+    resolution loss by shrinking the sampled support, not by skipping lines
+    within the original support.
+
+    :param float radius_fraction: Fraction of the original centered radial
+        k-space support retained in ``(0, 1]``. Smaller values correspond to
+        stronger isotropic resolution reduction.
     """
 
     def __init__(self, radius_fraction: float = 0.6) -> None:
@@ -96,17 +115,40 @@ class IsotropicResolutionReduction(SelfAdjointMultiplicativeMaskDistortion):
 
 
 class AnisotropicResolutionReduction(SelfAdjointMultiplicativeMaskDistortion):
-    """Axis-aligned low-pass truncation with independent cutoffs.
+    """Axis-aligned Cartesian resolution reduction with independent cutoffs.
 
-    This applies a rectangular mask
-    ``M_out(kx, ky) = M(kx, ky) * 1[|kx| <= Kx] * 1[|ky| <= Ky]``
-    where ``Kx`` and ``Ky`` are the normalized cutoffs along the readout and
-    phase-encode frequency axes respectively.
+    This distortion keeps only a centered rectangular region of Cartesian
+    k-space and zeros the remaining outer frequencies:
+    ``M_out(kx, ky) = M(kx, ky) * 1[|kx| <= Kx] * 1[|ky| <= Ky]``.
 
-    :param float kx_radius_fraction: Normalized cutoff along the horizontal
-        frequency axis in ``(0, 1]``.
-    :param float ky_radius_fraction: Normalized cutoff along the vertical
-        frequency axis in ``(0, 1]``.
+    In MRI terms, this models reduced in-plane acquisition resolution at fixed
+    field of view. The reconstructed image keeps the same matrix size, but its
+    effective spatial resolution decreases because less high-frequency k-space
+    support is retained. The resulting artifact is blur from limited k-space
+    extent, not aliasing from undersampling.
+
+    The two parameters control the retained centered k-space support along the
+    Cartesian encoding axes. ``kx_radius_fraction`` corresponds to the retained
+    readout-direction frequency extent, while ``ky_radius_fraction``
+    corresponds to the retained phase-encode-direction frequency extent.
+    Reducing either parameter broadens the point-spread function along the
+    corresponding image direction. A typical MRI-like setting keeps
+    ``kx_radius_fraction`` close to ``1.0`` and reduces
+    ``ky_radius_fraction``, reflecting that protocols often sacrifice more
+    phase-encode resolution than readout resolution.
+
+    This is a hard rectangular cutoff. If a softer edge is desired, use one of
+    the taper-based resolution distortions instead.
+
+    :param float kx_radius_fraction: Fraction of the original centered
+        k-space extent retained along the horizontal frequency axis in
+        ``(0, 1]``. This corresponds to the retained readout-direction
+        resolution support. ``1.0`` keeps the full sampled readout extent.
+    :param float ky_radius_fraction: Fraction of the original centered
+        k-space extent retained along the vertical frequency axis in
+        ``(0, 1]``. This corresponds to the retained phase-encode-direction
+        resolution support. Smaller values produce stronger blur along the
+        corresponding image direction.
     """
 
     def __init__(
@@ -126,8 +168,8 @@ class AnisotropicResolutionReduction(SelfAdjointMultiplicativeMaskDistortion):
     def _mask(self, shape: tuple[int, ...], device: torch.device) -> torch.Tensor:
         normalized_kx, normalized_ky = _normalized_axis_frequencies(shape)
 
-        # A rectangular passband models direction-dependent resolution loss,
-        # such as stronger truncation along phase encode than along readout.
+        # Centered rectangular support models reduced acquired Cartesian
+        # resolution, often stronger along phase encode than along readout.
         mask = (normalized_kx <= self.kx_radius_fraction) & (
             normalized_ky <= self.ky_radius_fraction
         )
@@ -135,18 +177,41 @@ class AnisotropicResolutionReduction(SelfAdjointMultiplicativeMaskDistortion):
 
 
 class HannTaperResolutionReduction(SelfAdjointMultiplicativeMaskDistortion):
-    """Radial low-pass reduction with a Hann transition band.
+    """Isotropic resolution reduction with a Hann-tapered radial cutoff.
 
-    The mask equals ``1`` in the low-frequency passband, tapers smoothly to
-    ``0`` with a raised-cosine profile near the cutoff, and is exactly ``0``
-    beyond ``radius_fraction``.
+    This distortion keeps a centered circular low-frequency region and tapers
+    the mask smoothly to zero near the cutoff using a raised-cosine Hann
+    profile. Inside the passband the mask equals ``1``; inside the transition
+    band it decreases smoothly from ``1`` to ``0``; beyond the cutoff it is
+    exactly ``0``.
+
+    In MRI terms, this is still a resolution-reduction operator: it suppresses
+    high spatial frequencies and therefore lowers effective in-plane spatial
+    resolution at fixed field of view. Relative to
+    :class:`IsotropicResolutionReduction`, the main difference is not the type
+    of resolution loss but the edge behavior of the k-space support. The smooth
+    transition reduces ringing that a hard truncation can introduce, at the
+    cost of making the support edge less sharp.
+
+    ``radius_fraction`` sets the outer radial extent of the retained support.
+    ``transition_fraction`` sets how much of that outer region is devoted to
+    the smooth taper. Setting ``transition_fraction=0`` recovers the hard
+    circular cutoff. Larger transition fractions make the cutoff gentler and
+    behave more like k-space apodization.
+
+    Compared with :class:`CartesianUndersampling`, this class does not skip
+    phase-encode lines within the original support. It reduces resolution by
+    attenuating and removing high frequencies, leading primarily to blur rather
+    than undersampling aliasing.
 
     See https://en.wikipedia.org/wiki/Hann_function for details on the Hann window.
 
-    :param float radius_fraction: Normalized cutoff radius in ``(0, 1]``.
-        Frequencies outside this radius are fully suppressed.
+    :param float radius_fraction: Fraction of the original centered radial
+        k-space support retained in ``(0, 1]``. Frequencies outside this radius
+        are fully suppressed.
     :param float transition_fraction: Fraction of the cutoff radius occupied by
-        the smooth transition in ``[0, 1]``. ``0`` recovers the hard cutoff.
+        the smooth Hann transition in ``[0, 1]``. ``0`` recovers the hard
+        circular cutoff.
     """
 
     def __init__(
@@ -173,20 +238,42 @@ class HannTaperResolutionReduction(SelfAdjointMultiplicativeMaskDistortion):
 
 
 class KaiserTaperResolutionReduction(SelfAdjointMultiplicativeMaskDistortion):
-    """Radial low-pass reduction with a Kaiser transition band.
+    """Isotropic resolution reduction with a Kaiser-tapered radial cutoff.
 
-    The mask equals ``1`` in the low-frequency passband, tapers smoothly to
-    ``0`` with a Kaiser-profile transition near the cutoff, and is exactly
-    ``0`` beyond ``radius_fraction``.
+    This distortion keeps a centered circular low-frequency region and tapers
+    the mask smoothly to zero near the cutoff using a Kaiser-window profile.
+    Inside the passband the mask equals ``1``; inside the transition band it
+    decreases smoothly from ``1`` to ``0``; beyond the cutoff it is exactly
+    ``0``.
+
+    In MRI terms, this lowers effective in-plane spatial resolution at fixed
+    field of view by reducing the retained high-frequency k-space extent. As
+    with :class:`HannTaperResolutionReduction`, the purpose of the taper is to
+    soften the hard support edge and reduce ringing, while still producing blur
+    from lost high-frequency information.
+
+    ``radius_fraction`` sets the outer radial extent of the retained support.
+    ``transition_fraction`` controls the width of the taper band. ``beta``
+    controls the shape of the Kaiser taper within that band: larger values
+    produce a steeper transition, while smaller positive values produce a more
+    gradual roll-off. Setting ``transition_fraction=0`` recovers the hard
+    circular cutoff regardless of ``beta``.
+
+    Compared with :class:`CartesianUndersampling`, this class reduces
+    resolution by shrinking and tapering the effective k-space support, rather
+    than by skipping lines from the original grid. The dominant image effect is
+    blur and apodization, not aliasing from sub-Nyquist sampling.
 
     See https://en.wikipedia.org/wiki/Kaiser_window for details on the Kaiser window.
 
-    :param float radius_fraction: Normalized cutoff radius in ``(0, 1]``.
-        Frequencies outside this radius are fully suppressed.
+    :param float radius_fraction: Fraction of the original centered radial
+        k-space support retained in ``(0, 1]``. Frequencies outside this radius
+        are fully suppressed.
     :param float transition_fraction: Fraction of the cutoff radius occupied by
-        the smooth transition in ``[0, 1]``. ``0`` recovers the hard cutoff.
-    :param float beta: Positive Kaiser shape parameter. Larger values create a
-        steeper transition inside the taper band.
+        the smooth Kaiser transition in ``[0, 1]``. ``0`` recovers the hard
+        circular cutoff.
+    :param float beta: Positive Kaiser shape parameter controlling how steeply
+        the taper falls inside the transition band.
     """
 
     def __init__(
