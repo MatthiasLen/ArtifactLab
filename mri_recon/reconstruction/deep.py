@@ -213,7 +213,9 @@ class OASISSinglecoilUnetReconstructor(dinv.models.Reconstructor):
         Path to the trained OASIS U-Net checkpoint. If omitted, the reconstructor
         downloads the packaged checkpoint for ``acceleration``.
     acceleration : int, optional
-        Packaged checkpoint acceleration factor used when ``checkpoint_file`` is omitted.
+        Training acceleration of the packaged checkpoint used when ``checkpoint_file``
+        is omitted. This selects pretrained weights only; it does not configure the
+        measurement distortion used during inference.
     manifest_path : str, optional
         Override path for the downloaded or cached packaged checkpoint manifest.
     device : torch.device, optional
@@ -229,9 +231,13 @@ class OASISSinglecoilUnetReconstructor(dinv.models.Reconstructor):
     }
     MODEL_DIR = Path(__file__).resolve().parents[2] / "downloads" / "oasis_singlecoil_unet"
     CHECKPOINTS_DIR = MODEL_DIR / "checkpoints"
+    SPLITS_DIR = MODEL_DIR / "splits"
     MANIFEST_PATH = CHECKPOINTS_DIR / "manifest.json"
+    SPLIT_CSV_PATH = SPLITS_DIR / "oasis_balanced_test.csv"
     MANIFEST_FILE_ID = "1zefZh7Vh5k2ssXKpLxV3Xnwf3S6dqu6I"
     MANIFEST_SHA256 = "d5180c49fcaafe7ba439319dcf4afe4d7489473bea437418d836070ecd506952"
+    SPLIT_CSV_FILE_ID = "16UoZ6sYzOwADv4KLRR9m0kjueXoxENrD"
+    SPLIT_CSV_SHA256 = "8627cf9781e6d5f94c2a0f08a7a75b386fb9b737cdce94fb1558f95fa2e62dd5"
     CHECKPOINT_FILE_IDS = {
         "4": "11s6YeM6_YJeD4wcrn24jyMjyj_vX2ANU",
         "8": "1w8PDiYpr2xBPXahzRllhZjQT1yoMGXg-",
@@ -260,12 +266,28 @@ class OASISSinglecoilUnetReconstructor(dinv.models.Reconstructor):
         return resolved_manifest_path
 
     @classmethod
+    def resolve_default_split_csv(cls) -> Path:
+        """Resolve and download the packaged OASIS split CSV."""
+
+        resolved_split_csv_path = cls.SPLIT_CSV_PATH.resolve()
+        if matches_sha256(resolved_split_csv_path, cls.SPLIT_CSV_SHA256):
+            return resolved_split_csv_path
+
+        download_google_drive_file_with_sha256(
+            cls.SPLIT_CSV_FILE_ID,
+            resolved_split_csv_path,
+            cls.SPLIT_CSV_SHA256,
+            label="OASIS split CSV",
+        )
+        return resolved_split_csv_path
+
+    @classmethod
     def resolve_default_checkpoint(
         cls,
         acceleration: int,
         manifest_path: Optional[Path] = None,
     ) -> Path:
-        """Resolve and download the packaged OASIS checkpoint for a given acceleration."""
+        """Resolve and download the OASIS checkpoint for a training acceleration."""
 
         resolved_manifest_path = cls.ensure_manifest(manifest_path)
         with resolved_manifest_path.open("r", encoding="utf-8") as handle:
@@ -276,12 +298,14 @@ class OASISSinglecoilUnetReconstructor(dinv.models.Reconstructor):
         if key not in checkpoints:
             available = ", ".join(sorted(checkpoints))
             raise ValueError(
-                f"No packaged checkpoint for acceleration {acceleration}. Available: {available}."
+                f"No packaged checkpoint for training acceleration {acceleration}. "
+                f"Available: {available}."
             )
 
         if key not in cls.CHECKPOINT_FILE_IDS or key not in cls.CHECKPOINT_SHA256:
             raise ValueError(
-                f"No automated download metadata is configured for acceleration {acceleration}."
+                "No automated download metadata is configured for OASIS checkpoint "
+                f"training acceleration {acceleration}."
             )
 
         filename = Path(checkpoints[key]["filename"])

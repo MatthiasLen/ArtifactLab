@@ -57,15 +57,21 @@ uv sync
 uv run python -c "import torch; print(torch.__version__, torch.cuda.is_available(), torch.version.cuda)"
 ```
 
-## OASIS Inference Example
+## Inference Examples
 
-Run the OASIS plotting example with a local OASIS root folder. By default, it uses the packaged split and checkpoint manifest under `reconstruction_only/`.
+Run the FastMRI plotting example with local FastMRI k-space files:
 
 ```bash
-python examples/OASIS_inference_plot.py --source /path/to/oasis_cross_sectional_data --acceleration 4
+python examples/fastmri_inference_plot.py --source /path/to/fastmri/singlecoil_val --dataset fastmri --algorithm unet
 ```
 
-Pass `--checkpoint /path/to/checkpoint.ckpt` to use a different trained OASIS U-Net checkpoint.
+Run the same lightweight example on OASIS data. The packaged OASIS split CSV and U-Net checkpoint are downloaded automatically when missing:
+
+```bash
+python examples/fastmri_inference_plot.py --source /path/to/oasis_cross_sectional_data --dataset oasis --algorithm unet
+```
+
+For OASIS, `--oasis_checkpoint_acceleration` only selects the packaged U-Net weights by their training acceleration. Distortion undersampling is still controlled by `--keep_fraction` and `--center_fraction`.
 
 ## Pre-commit
 

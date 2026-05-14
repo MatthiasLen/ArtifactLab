@@ -17,9 +17,17 @@ import deepinv as dinv
 
 from mri_recon.distortions import *
 from mri_recon.reconstruction import *
+from mri_recon.utils import (
+    OasisCenteredFFTPhysics,
+    OasisSliceDataset,
+    image_to_kspace,
+    kspace_to_image,
+)
 
-REPORT_DIR = Path("reports") / "fastmri_inference_plot"
-REPORT_DIR.mkdir(parents=True, exist_ok=True)
+FASTMRI_REPORT_DIR = Path("reports") / "fastmri_inference_plot"
+OASIS_REPORT_DIR = Path("reports") / "oasis_inference_plot"
+FASTMRI_REPORT_DIR.mkdir(parents=True, exist_ok=True)
+OASIS_REPORT_DIR.mkdir(parents=True, exist_ok=True)
 ALGORITHMS = [
     # "zero-filled",
     # "conjugate-gradient",
@@ -29,7 +37,7 @@ ALGORITHMS = [
     # "wavelet-fista",
     # "tv-fista",
     # "tv-pdhg",
-    "unet",  # will trigger download of pretrained weights if not already present
+    "unet",  # dataset-specific U-Net; downloads weights if not already present
 ]
 DISTORTIONS = [
     "Cartesian undersampling (variable density)",
@@ -114,6 +122,8 @@ def choose_algorithm(
     img_size: tuple = (640, 368),
     device: torch.device = "cpu",
     verbose: bool = False,
+    dataset: str = "fastmri",
+    oasis_checkpoint_acceleration: int = 4,
 ) -> dinv.models.Reconstructor:
     match name:
         case "zero-filled":
@@ -133,12 +143,22 @@ def choose_algorithm(
         case "wavelet-fista":
             return WaveletFISTAReconstructor(n_iter=100, device=device, verbose=verbose)
         case "unet":
+            if dataset == "oasis":
+                return OASISSinglecoilUnetReconstructor(
+                    acceleration=oasis_checkpoint_acceleration,
+                    device=device,
+                )
             return FastMRISinglecoilUnetReconstructor(device=device)
         case _:
             raise ValueError(f"Unknown algorithm {name!r}")
 
 
-def choose_distortion(name: str) -> BaseDistortion:
+def choose_distortion(
+    name: str,
+    keep_fraction: float = 0.25,
+    center_fraction: float = 0.125,
+    cartesian_axis: int = -2,
+) -> BaseDistortion:
     match name:
         case "Phase-encode ghosting":
             return PhaseEncodeGhostingDistortion(
@@ -149,44 +169,49 @@ def choose_distortion(name: str) -> BaseDistortion:
             )
         case "Cartesian undersampling (variable density)":
             return CartesianUndersampling(
-                keep_fraction=0.25,
-                center_fraction=0.125,
+                keep_fraction=keep_fraction,
+                center_fraction=center_fraction,
                 pattern="variable_density_random",
+                axis=cartesian_axis,
                 seed=42,
             )
         case "Cartesian undersampling (uniform random)":
             return CartesianUndersampling(
-                keep_fraction=0.25,
-                center_fraction=0.125,
+                keep_fraction=keep_fraction,
+                center_fraction=center_fraction,
                 pattern="uniform_random",
+                axis=cartesian_axis,
                 seed=42,
             )
         case "Cartesian undersampling (uniform random, zero ACS)":
             return CartesianUndersampling(
-                keep_fraction=0.5,
+                keep_fraction=keep_fraction,
                 center_fraction=0.0,
                 pattern="uniform_random",
+                axis=cartesian_axis,
                 seed=42,
             )
         case "Cartesian undersampling (equispaced)":
             return CartesianUndersampling(
-                keep_fraction=0.25,
-                center_fraction=0.125,
+                keep_fraction=keep_fraction,
+                center_fraction=center_fraction,
                 pattern="equispaced",
+                axis=cartesian_axis,
                 seed=42,
             )
         case "Cartesian undersampling (equispaced, zero ACS)":
             return CartesianUndersampling(
-                keep_fraction=0.5,
+                keep_fraction=keep_fraction,
                 center_fraction=0.0,
                 pattern="equispaced",
+                axis=cartesian_axis,
                 seed=42,
             )
         case "Partial Fourier":
             return PartialFourierDistortion(
                 partial_fraction=0.7,
-                center_fraction=0.1,
-                axis=-2,
+                center_fraction=center_fraction,
+                axis=cartesian_axis,
                 side="high",
             )
         case "Anisotropic LP":
@@ -256,10 +281,30 @@ def choose_metric(name: str) -> dinv.metric.Metric:
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
+
+    # data related arguments
     parser.add_argument(
-        "--source", type=str, help="Local FastMRI directory with raw k-space .h5 files."
+        "--source",
+        type=Path,
+        help="Local FastMRI directory with raw k-space .h5 files or OASIS root directory.",
     )
+    parser.add_argument("--dataset", choices=("fastmri", "oasis"), default="fastmri")
+
     parser.add_argument("--distortion", type=str, default="", choices=DISTORTIONS)
+    parser.add_argument(
+        "--keep_fraction",
+        type=float,
+        default=0.25,
+        help="Fraction of k-space lines to keep for undersampling distortions.",
+    )
+    parser.add_argument(
+        "--center_fraction",
+        type=float,
+        default=0.125,
+        help="Fraction of low-frequency k-space lines to keep fully for undersampling distortions.",
+    )
+
+    # algo related arguments
     parser.add_argument(
         "--algorithm",
         type=str,
@@ -267,6 +312,18 @@ if __name__ == "__main__":
         choices=ALGORITHMS,
         help="Reconstruction algorithm applied to undistorted and distorted k-space.",
     )
+    parser.add_argument(
+        "--oasis_checkpoint_acceleration",
+        type=int,
+        default=4,
+        choices=[4, 8, 10],
+        help=(
+            "Training acceleration of the packaged OASIS U-Net checkpoint. "
+            "This only selects pretrained weights; distortion undersampling is "
+            "controlled by --keep_fraction and --center_fraction."
+        ),
+    )
+    # inference related arguments
     parser.add_argument("--num_samples", type=int, default=1, help="How many samples to process.")
     parser.add_argument(
         "--verbose",
@@ -275,9 +332,20 @@ if __name__ == "__main__":
     )
     args = parser.parse_args()
 
+    # set up report dir
+    REPORT_DIR = OASIS_REPORT_DIR if args.dataset == "oasis" else FASTMRI_REPORT_DIR
+
     # set up device, dataset, metrics
     device = dinv.utils.get_device()
-    dataset = dinv.datasets.FastMRISliceDataset(args.source, slice_index="middle")
+    if args.dataset == "oasis":
+        split_csv = OASISSinglecoilUnetReconstructor.resolve_default_split_csv()
+        dataset = OasisSliceDataset(
+            data_path=args.source,
+            split_csv=split_csv,
+            sample_rate=0.6,
+        )
+    else:
+        dataset = dinv.datasets.FastMRISliceDataset(str(args.source), slice_index="middle")
     metrics = [choose_metric(m) for m in METRICS]
 
     for i, batch in enumerate(iter(torch.utils.data.DataLoader(dataset))):
@@ -285,30 +353,45 @@ if __name__ == "__main__":
         if i >= args.num_samples:
             break
 
-        # batch is a tuple of (x, y) or (x, y, params) where x is GT (could be torch.nan),
-        # y is kspace, and params is a dict containing mask (if test set)
-        y = batch[1]
+        if args.dataset == "oasis":
+            x = batch["x"].to(device)
+            y = image_to_kspace(x)
+        else:
+            # batch is a tuple of (x, y) or (x, y, params) where x is GT (could be torch.nan),
+            # y is kspace, and params is a dict containing mask (if test set)
+            y = batch[1].to(device)
 
         for distortion_name in DISTORTIONS if args.distortion == "" else [args.distortion]:
-            distortion = choose_distortion(distortion_name)
+            distortion = choose_distortion(
+                distortion_name,
+                keep_fraction=args.keep_fraction,
+                center_fraction=args.center_fraction,
+                cartesian_axis=-1 if args.dataset == "oasis" else -2,
+            )
 
             # create physics objects for both clean and distorted k-space
             # the distortion is applied to the k-space measurements (not the image)
             # TODO: allow loading multicoil data
-            physics_clean = DistortedKspaceMultiCoilMRI(
-                distortion=BaseDistortion(), img_size=(1, 2, *y.shape[-2:]), device=device
-            )
-            physics = DistortedKspaceMultiCoilMRI(
-                distortion=distortion, img_size=(1, 2, *y.shape[-2:]), device=device
-            )
-
-            y = y.to(device)
+            if args.dataset == "oasis":
+                physics_clean = OasisCenteredFFTPhysics(BaseDistortion())
+                physics = OasisCenteredFFTPhysics(distortion)
+            else:
+                physics_clean = DistortedKspaceMultiCoilMRI(
+                    distortion=BaseDistortion(), img_size=(1, 2, *y.shape[-2:]), device=device
+                )
+                physics = DistortedKspaceMultiCoilMRI(
+                    distortion=distortion, img_size=(1, 2, *y.shape[-2:]), device=device
+                )
             y_distorted = distortion.A(y)
 
             # generate reference reconstructions (CG) for both clean and distorted k-space
             # without correction for the distortion, i.e. using physics_clean in both cases
-            x_clean = ConjugateGradientReconstructor()(y, physics_clean)
-            x_distorted = ConjugateGradientReconstructor()(y_distorted, physics_clean)
+            if args.dataset == "oasis":
+                x_clean = x
+                x_distorted = kspace_to_image(y_distorted)
+            else:
+                x_clean = ConjugateGradientReconstructor()(y, physics_clean)
+                x_distorted = ConjugateGradientReconstructor()(y_distorted, physics_clean)
 
             # plot and save the k-space magnitude for both clean and distorted k-space
             save_kspace_plot(
@@ -327,6 +410,8 @@ if __name__ == "__main__":
                     img_size=y.shape[-2:],
                     device=device,
                     verbose=args.verbose,
+                    dataset=args.dataset,
+                    oasis_checkpoint_acceleration=args.oasis_checkpoint_acceleration,
                 ).to(device)
 
                 # actual reconstruction with the algo being evaluated
