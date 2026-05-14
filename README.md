@@ -20,24 +20,30 @@ Reconstruction playground for the MRI Recon Metrics Reloaded workgroup.
 
 ## Implemented Distortions
 
-| Class | Selector name | Family | Summary |
-| --- | --- | --- | --- |
-| `BaseDistortion` | `None` | Identity | Leaves the k-space unchanged and serves as the no-distortion baseline. |
-| `SelfAdjointMultiplicativeMaskDistortion` | `None` | Abstract base | Super class for self-adjoint distortions that apply a real-valued elementwise multiplicative mask; subclasses implement `_mask`. |
-| `IsotropicResolutionReduction` | `Isotropic LP` | Resolution loss | Applies a circular low-pass mask in k-space to remove high frequencies isotropically. |
-| `AnisotropicResolutionReduction` | `Anisotropic LP` | Resolution loss | Applies an axis-aligned rectangular low-pass mask with separate cutoffs along `kx` and `ky`. |
-| `HannTaperResolutionReduction` | `Hann taper LP` | Resolution loss | Applies a circular low-pass mask with a raised-cosine transition band to soften the cutoff. |
-| `KaiserTaperResolutionReduction` | `Kaiser taper LP` | Resolution loss | Applies a circular low-pass mask with a Kaiser transition band for adjustable cutoff smoothness. |
-| `CartesianUndersampling` | `Cartesian undersampling` | Acquisition undersampling | Simulates Cartesian acquisition undersampling with optional contiguous ACS center retention plus uniform-random, variable-density-random, or equispaced peripheral sampling. |
-| `RadialHighPassEmphasisDistortion` | `Radial high-pass emphasis` | Sharpening | Applies a radial gain mask that increasingly boosts high-frequency k-space content toward the sampled edge. |
-| `GaussianKspaceBiasField` | `Gaussian bias field` | Intensity non-uniformity | Applies a centered smooth multiplicative Gaussian gain field in k-space. |
-| `OffCenterAnisotropicGaussianKspaceBiasField` | `Off-center anisotropic Gaussian bias field` | Intensity non-uniformity | Applies an off-center anisotropic Gaussian gain field in k-space with separate widths along `kx` and `ky`. |
-| `GaussianNoiseDistortion` | `Gaussian noise` | Noise | Adds independent zero-mean Gaussian noise to the stored real and imaginary k-space channels. |
-| `TranslationMotionDistortion` | `Translation motion` | Motion | Applies a rigid in-plane translation as a unit-modulus phase ramp in k-space. |
-| `RotationalMotionDistortion` | `Rotational motion` | Motion | Applies a rigid in-plane rotation about the image center by resampling centered Cartesian k-space. |
-| `SegmentedRotationalMotionDistortion` | `Segmented rotational motion` | Motion | Splits Cartesian k-space into acquisition segments and stitches segment-specific centered k-space rotations into one inconsistent scan. |
-| `SegmentedTranslationMotionDistortion` | `Segmented translation motion` | Motion | Splits Cartesian k-space into acquisition segments and applies a different translation phase ramp to each segment. |
-| `PhaseEncodeGhostingDistortion` | `Phase-encode ghosting` | Ghosting | Applies periodic line-wise phase and magnitude inconsistency to create phase-encode ghost replicas. |
+| Class | Selector name | Family | Targeted Image Property | Summary |
+| --- | --- | --- | --- | --- |
+| `BaseDistortion` | `None` | Identity | | Leaves the k-space unchanged and serves as the no-distortion baseline. |
+| `SelfAdjointMultiplicativeMaskDistortion` | `None` | Abstract base | | Super class for self-adjoint distortions that apply a real-valued elementwise multiplicative mask; subclasses implement `_mask`. |
+| `IsotropicResolutionReduction` | `Isotropic LP` | Resolution loss | Sharpness (Glancing), Edges (Scanning) | Applies a circular low-pass mask in k-space to remove high frequencies isotropically. |
+| `AnisotropicResolutionReduction` | `Anisotropic LP` | Resolution loss | Sharpness (Glancing), Edges (Scanning) | Applies an axis-aligned rectangular low-pass mask with separate cutoffs along `kx` and `ky`. |
+| `HannTaperResolutionReduction` | `Hann taper LP` | Resolution loss | Sharpness (Glancing), Edges (Scanning), RoI Homogeneity (Glancing) | Applies a circular low-pass mask with a raised-cosine transition band to soften the cutoff. |
+| `KaiserTaperResolutionReduction` | `Kaiser taper LP` | Resolution loss | Sharpness (Glancing), Edges (Scanning), RoI Homogeneity (Glancing) | Applies a circular low-pass mask with a Kaiser transition band for adjustable cutoff smoothness. |
+| `CartesianUndersampling` | `Cartesian undersampling` | Acquisition undersampling | Local Signal Preservation (Scanning) | Simulates Cartesian acquisition undersampling with optional contiguous ACS center retention plus uniform-random, variable-density-random, or equispaced peripheral sampling. |
+| `RadialHighPassEmphasisDistortion` | `Radial high-pass emphasis` | Sharpening |  Sharpness (Glancing), Edges (Scanning), Noise Level (Glancing) | Applies a radial gain mask that increasingly boosts high-frequency k-space content toward the sampled edge. |
+| `GaussianKspaceBiasField` | `Gaussian bias field` | Intensity non-uniformity | Intensity Uniformity (Glancing/Full Image) | Applies a centered smooth multiplicative Gaussian gain field in k-space. |
+| `OffCenterAnisotropicGaussianKspaceBiasField` | `Off-center anisotropic Gaussian bias field` | Intensity non-uniformity | Intensity Uniformity (Glancing/Full Image) | Applies an off-center anisotropic Gaussian gain field in k-space with separate widths along `kx` and `ky`. |
+| `GaussianNoiseDistortion` | `Gaussian noise` | Noise | Noise Level (Glancing) | Adds independent zero-mean Gaussian noise to the stored real and imaginary k-space channels. |
+| `TranslationMotionDistortion` | `Translation motion` | Motion | Local Signal Preservation (Scanning) |Applies a rigid in-plane translation as a unit-modulus phase ramp in k-space. |
+| `RotationalMotionDistortion` | `Rotational motion` | Motion | Local Signal Preservation (Scanning) | Applies a rigid in-plane rotation about the image center by resampling centered Cartesian k-space. |
+| `SegmentedRotationalMotionDistortion` | `Segmented rotational motion` | Motion | Local Signal Preservation (Scanning) | Splits Cartesian k-space into acquisition segments and stitches segment-specific centered k-space rotations into one inconsistent scan. |
+| `SegmentedTranslationMotionDistortion` | `Segmented translation motion` | Motion | Local Signal Preservation (Scanning) | Splits Cartesian k-space into acquisition segments and applies a different translation phase ramp to each segment. |
+| `PhaseEncodeGhostingDistortion` | `Phase-encode ghosting` | Ghosting | Local Signal Preservation (Scanning) | Applies periodic line-wise phase and magnitude inconsistency to create phase-encode ghost replicas. |
+
+
+## Distortions Possibly Planned
+- Rician Noise (Noise Level (Glancing))
+- Modification of sensitivity map (RoI Homogeneity (Glancing))
+- Pixel size change by cropping or padding k-Space (Pixel Resolution/Spacing (General Properties))
 
 ## uv Environment Notes
 
