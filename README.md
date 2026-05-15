@@ -17,6 +17,7 @@ Reconstruction playground for the MRI Recon Metrics Reloaded workgroup.
 | `RAMReconstructor` | `ram` | Deep learning | Wrapper around the DeepInverse RAM model, with input normalization based on the adjoint reconstruction. |
 | `DeepImagePriorReconstructor` | `dip` | Deep learning | Deep Image Prior reconstruction using an untrained convolutional decoder optimized at inference time. |
 | `FastMRISinglecoilUnetReconstructor` | `unet` | Deep learning | Wrapper around the pretrained fastMRI single-coil U-Net, returning a magnitude-based reconstruction with a zero imaginary channel. |
+| `OASISSinglecoilUnetReconstructor` | `oasis-unet` | Deep learning | Wrapper around a trained OASIS single-coil U-Net checkpoint, reusing the shared fastMRI-derived U-Net module. |
 
 ## Implemented Distortions
 
@@ -55,6 +56,22 @@ On Windows and Linux, `uv sync` installs the CUDA 12.8 PyTorch wheels. On macOS,
 uv sync
 uv run python -c "import torch; print(torch.__version__, torch.cuda.is_available(), torch.version.cuda)"
 ```
+
+## Inference Examples
+
+Run the FastMRI plotting example with local FastMRI k-space files:
+
+```bash
+python examples/fastmri_inference_plot.py --source /path/to/fastmri/singlecoil_val --dataset fastmri --algorithm unet
+```
+
+Run the same lightweight example on OASIS data. The packaged OASIS split CSV and U-Net checkpoint are downloaded automatically when missing:
+
+```bash
+python examples/fastmri_inference_plot.py --source /path/to/oasis_cross_sectional_data --dataset oasis --algorithm unet
+```
+
+For OASIS, `--oasis_checkpoint_acceleration` only selects the packaged U-Net weights by their training acceleration. Distortion undersampling is still controlled by `--keep_fraction` and `--center_fraction`.
 
 ## Pre-commit
 

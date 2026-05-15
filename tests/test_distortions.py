@@ -18,6 +18,7 @@ from mri_recon.distortions import (
     IsotropicResolutionReduction,
     KaiserTaperResolutionReduction,
     OffCenterAnisotropicGaussianKspaceBiasField,
+    PartialFourierDistortion,
     PhaseEncodeGhostingDistortion,
     RadialHighPassEmphasisDistortion,
     RotationalMotionDistortion,
@@ -34,6 +35,7 @@ DISTORTIONS = [
     "Hann taper LP",
     "Kaiser taper LP",
     "Cartesian undersampling",
+    "Partial Fourier",
     "Radial high-pass emphasis",
     "Gaussian bias field",
     "Off-center anisotropic Gaussian bias field",
@@ -49,6 +51,7 @@ EXACT_OPERATOR_DISTORTIONS = {
     "Isotropic LP",
     "Anisotropic LP",
     "Cartesian undersampling",
+    "Partial Fourier",
     "Phase-encode ghosting",
     "Translation motion",
     "Segmented translation motion",
@@ -90,6 +93,13 @@ def choose_distortion(name):
                 keep_fraction=0.25,
                 center_fraction=0.2,
                 seed=42,
+            )
+        case "Partial Fourier":
+            return PartialFourierDistortion(
+                partial_fraction=0.7,
+                center_fraction=0.1,
+                axis=-2,
+                side="high",
             )
         case "Radial high-pass emphasis":
             return RadialHighPassEmphasisDistortion(alpha=0.4)
@@ -227,6 +237,52 @@ def test_anisotropic_resolution_reduction_identity_at_full_cutoffs(device):
     y_distorted = distortion.A(y)
 
     assert torch.equal(y_distorted, y)
+
+
+def test_partial_fourier_distortion_identity_at_full_fraction(device):
+    distortion = PartialFourierDistortion(
+        partial_fraction=1.0,
+        center_fraction=0.1,
+        axis=-2,
+        side="high",
+    )
+    y = torch.randn((1, 2, 32, 32), device=device)
+
+    assert torch.equal(distortion.A(y), y)
+
+
+def test_partial_fourier_distortion_retains_contiguous_asymmetric_region(device):
+    distortion = PartialFourierDistortion(
+        partial_fraction=0.7,
+        center_fraction=0.1,
+        axis=-2,
+        side="high",
+    )
+
+    retained_indices = distortion._generate_1d_mask(16).nonzero().flatten().tolist()
+
+    assert retained_indices == list(range(5, 16))
+
+
+def test_partial_fourier_distortion_side_changes_retained_half(device):
+    high = PartialFourierDistortion(
+        partial_fraction=0.7,
+        center_fraction=0.1,
+        axis=-2,
+        side="high",
+    )
+    low = PartialFourierDistortion(
+        partial_fraction=0.7,
+        center_fraction=0.1,
+        axis=-2,
+        side="low",
+    )
+
+    high_indices = high._generate_1d_mask(16).nonzero().flatten().tolist()
+    low_indices = low._generate_1d_mask(16).nonzero().flatten().tolist()
+
+    assert high_indices == list(range(5, 16))
+    assert low_indices == list(range(0, 11))
 
 
 def test_hann_taper_resolution_reduction_has_smooth_transition(device):
@@ -766,12 +822,12 @@ def test_cartesian_undersampling_rejects_center_fraction_exceeding_keep_fraction
 
 
 def test_cartesian_undersampling_rejects_invalid_axis(device):
-    """Verify that axis must be -2 or -3."""
-    with pytest.raises(ValueError, match="axis must be -2 or -3"):
-        CartesianUndersampling(axis=-1)
-
-    with pytest.raises(ValueError, match="axis must be -2 or -3"):
+    """Verify that axis must be one of the supported trailing k-space axes."""
+    with pytest.raises(ValueError, match="axis must be -1, -2, or -3"):
         CartesianUndersampling(axis=0)
+
+    with pytest.raises(ValueError, match="axis must be -1, -2, or -3"):
+        CartesianUndersampling(axis=-4)
 
 
 def test_cartesian_undersampling_rejects_invalid_pattern(device):
@@ -830,6 +886,22 @@ def test_cartesian_undersampling_preserves_center_acs_region(device):
     center_end = center_start + center_lines
 
     assert torch.all(mask_1d[center_start:center_end] == 1.0)
+
+
+def test_cartesian_undersampling_can_mask_readout_axis(device):
+    """Verify that axis=-1 masks columns rather than phase-encode rows."""
+    distortion = CartesianUndersampling(
+        keep_fraction=0.25,
+        center_fraction=0.125,
+        pattern="equispaced",
+        axis=-1,
+    )
+    shape = (1, 2, 32, 64)
+    mask = distortion._mask(shape, torch.device(device))
+
+    assert mask.shape == (1, 1, 1, 64)
+    assert torch.sum(mask[0, 0, 0]).item() == 16
+    assert torch.all(mask.expand(shape)[:, :, 0, :] == mask.expand(shape)[:, :, -1, :])
 
 
 def test_cartesian_undersampling_zero_center_fraction_has_no_forced_acs(device):

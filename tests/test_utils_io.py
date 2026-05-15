@@ -1,7 +1,7 @@
 import hashlib
 from io import BytesIO
 
-from mri_recon.utils.io import download_file_with_sha256
+from mri_recon.utils.io import download_file_with_sha256, download_google_drive_file_with_sha256
 
 
 class FakeResponse:
@@ -39,3 +39,30 @@ def test_download_file_with_sha256_moves_temp_file_after_close(tmp_path, monkeyp
 
     assert destination.read_bytes() == payload
     assert list(tmp_path.glob("*.tmp")) == []
+
+
+def test_download_google_drive_file_with_sha256_confirms_large_download(tmp_path, monkeypatch):
+    warning_html = b"""<!DOCTYPE html><html><body><form id="download-form" action="https://drive.usercontent.google.com/download" method="get"><input type="hidden" name="id" value="file-123"><input type="hidden" name="export" value="download"><input type="hidden" name="confirm" value="t"><input type="hidden" name="uuid" value="uuid-456"></form><title>Google Drive - Virus scan warning</title></body></html>"""
+    payload = b"oasis-checkpoint"
+    expected_sha256 = hashlib.sha256(payload).hexdigest()
+    destination = tmp_path / "oasis.ckpt"
+    requested_urls = []
+
+    def fake_urlopen(url, timeout=30):
+        requested_urls.append(url)
+        if "confirm=t" in url:
+            return FakeResponse(payload)
+        return FakeResponse(warning_html)
+
+    monkeypatch.setattr("mri_recon.utils.io.urlopen", fake_urlopen)
+
+    download_google_drive_file_with_sha256(
+        "file-123",
+        destination,
+        expected_sha256,
+        label="OASIS checkpoint",
+        report_interval_mb=1,
+    )
+
+    assert destination.read_bytes() == payload
+    assert any("confirm=t" in url and "uuid=uuid-456" in url for url in requested_urls)
