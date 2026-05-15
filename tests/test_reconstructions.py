@@ -9,17 +9,15 @@ import deepinv as dinv
 
 from mri_recon.reconstruction._fastmri_unet import Unet
 from mri_recon.reconstruction.deep import (
-    RAMReconstructor,
-    DeepImagePriorReconstructor,
     FastMRISinglecoilUnetReconstructor,
     OASISSinglecoilUnetReconstructor,
 )
-from mri_recon.reconstruction.classic import (
-    ZeroFilledReconstructor,
-    ConjugateGradientReconstructor,
-    TVPGDReconstructor,
-    WaveletFISTAReconstructor,
-    TVFISTAReconstructor,
+from mri_recon.reconstruction.inference import (
+    FASTMRI_UNET_ALGORITHM,
+    OASIS_UNET_ALGORITHMS,
+    choose_reconstructor,
+    uses_oasis_centered_path,
+    validate_algorithm_dataset_compatibility,
 )
 from mri_recon.distortions import DistortedKspaceMultiCoilMRI
 
@@ -34,45 +32,29 @@ ALGORITHMS = [
 ]
 
 
-def choose_algorithm(name, img_size, device):
-    match name:
-        case "zero-filled":
-            return ZeroFilledReconstructor()
-        case "conjugate-gradient":
-            return ConjugateGradientReconstructor(max_iter=20)
-        case "ram":
-            return RAMReconstructor(default_sigma=0.05, device=device)
-        case "dip":
-            return DeepImagePriorReconstructor(img_size=img_size[-2:], n_iter=100)
-        case "tv-pgd":
-            return TVPGDReconstructor(n_iter=100, verbose=False)
-        case "tv-fista":
-            return TVFISTAReconstructor(n_iter=100, verbose=False)
-        case "wavelet-fista":
-            return WaveletFISTAReconstructor(n_iter=100, verbose=False, device=device)
-        case _:
-            raise ValueError(f"Unknown algorithm {name!r}")
-
-
-@pytest.fixture
-def device():
+@pytest.fixture(name="runtime_device")
+def fixture_runtime_device():
     return "cpu"
 
 
 @pytest.mark.parametrize("name", ALGORITHMS)
-def test_reconstructors(name, device):
+def test_reconstructors(name, runtime_device):
     """
     Test that reconstruction algorithms work end to end on a dummy example.
     """
     x = dinv.utils.load_example(
-        "butterfly.png", img_size=(32, 32), grayscale=True, resize_mode="resize", device=device
+        "butterfly.png",
+        img_size=(32, 32),
+        grayscale=True,
+        resize_mode="resize",
+        device=runtime_device,
     )
     x = torch.cat([x, torch.zeros_like(x)], dim=1)  # dummy complex data
 
-    model = choose_algorithm(name, img_size=x.shape[1:], device=device)
+    model = choose_reconstructor(name, img_size=x.shape[1:], device=runtime_device)
 
     physics = DistortedKspaceMultiCoilMRI(
-        img_size=(1, 2, *x.shape[-2:]), coil_maps=1, device=device
+        img_size=(1, 2, *x.shape[-2:]), coil_maps=1, device=runtime_device
     )
 
     y = physics(x)
@@ -82,7 +64,7 @@ def test_reconstructors(name, device):
     assert x_hat.shape == x.shape
 
 
-def test_fastmri_singlecoil_unet_reconstructor(device, tmp_path, monkeypatch):
+def test_fastmri_singlecoil_unet_reconstructor(runtime_device, tmp_path, monkeypatch):
     """
     Test the FastMRI UNet reconstructor end to end using local fixture weights.
     """
@@ -102,16 +84,20 @@ def test_fastmri_singlecoil_unet_reconstructor(device, tmp_path, monkeypatch):
     torch.save(Unet(**FastMRISinglecoilUnetReconstructor.UNET_KWARGS).state_dict(), weights_path)
 
     x = dinv.utils.load_example(
-        "butterfly.png", img_size=(32, 32), grayscale=True, resize_mode="resize", device=device
+        "butterfly.png",
+        img_size=(32, 32),
+        grayscale=True,
+        resize_mode="resize",
+        device=runtime_device,
     )
     x = torch.cat([x, torch.zeros_like(x)], dim=1)
 
     model = FastMRISinglecoilUnetReconstructor(
-        device=device,
+        device=runtime_device,
         state_dict_file=str(weights_path),
     )
     physics = DistortedKspaceMultiCoilMRI(
-        img_size=(1, 2, *x.shape[-2:]), coil_maps=1, device=device
+        img_size=(1, 2, *x.shape[-2:]), coil_maps=1, device=runtime_device
     )
 
     y = physics(x)
@@ -121,7 +107,7 @@ def test_fastmri_singlecoil_unet_reconstructor(device, tmp_path, monkeypatch):
     assert torch.allclose(x_hat[:, 1], torch.zeros_like(x_hat[:, 1]))
 
 
-def test_oasis_singlecoil_unet_reconstructor_loads_lightning_checkpoint(device, tmp_path):
+def test_oasis_singlecoil_unet_reconstructor_loads_lightning_checkpoint(runtime_device, tmp_path):
     """
     Test the OASIS UNet reconstructor with a Lightning-style checkpoint.
     """
@@ -133,16 +119,20 @@ def test_oasis_singlecoil_unet_reconstructor_loads_lightning_checkpoint(device, 
     )
 
     x = dinv.utils.load_example(
-        "butterfly.png", img_size=(32, 32), grayscale=True, resize_mode="resize", device=device
+        "butterfly.png",
+        img_size=(32, 32),
+        grayscale=True,
+        resize_mode="resize",
+        device=runtime_device,
     )
     x = torch.cat([x, torch.zeros_like(x)], dim=1)
 
     model = OASISSinglecoilUnetReconstructor(
         checkpoint_file=str(weights_path),
-        device=device,
+        device=runtime_device,
     )
     physics = DistortedKspaceMultiCoilMRI(
-        img_size=(1, 2, *x.shape[-2:]), coil_maps=1, device=device
+        img_size=(1, 2, *x.shape[-2:]), coil_maps=1, device=runtime_device
     )
 
     y = physics(x)
@@ -178,7 +168,7 @@ def test_oasis_resolve_default_checkpoint_downloads_manifest_and_checkpoint(tmp_
         {"4": "checkpoint-file-id"},
     )
 
-    def fake_download(file_id, destination, expected_sha256, **kwargs):
+    def fake_download(file_id, destination, _expected_sha256, **_kwargs):
         downloads.append((file_id, destination))
         destination.parent.mkdir(parents=True, exist_ok=True)
         if file_id == "1zefZh7Vh5k2ssXKpLxV3Xnwf3S6dqu6I":
@@ -207,7 +197,7 @@ def test_oasis_resolve_default_checkpoint_downloads_manifest_and_checkpoint(tmp_
 
 
 def test_oasis_singlecoil_unet_reconstructor_uses_packaged_checkpoint_defaults(
-    device, tmp_path, monkeypatch
+    runtime_device, tmp_path, monkeypatch
 ):
     monkeypatch.setattr(
         OASISSinglecoilUnetReconstructor,
@@ -230,7 +220,7 @@ def test_oasis_singlecoil_unet_reconstructor_uses_packaged_checkpoint_defaults(
 
     captured = {}
 
-    def fake_resolve(cls, acceleration, manifest_path=None):
+    def fake_resolve(_cls, acceleration, manifest_path=None):
         captured["acceleration"] = acceleration
         captured["manifest_path"] = manifest_path
         return weights_path
@@ -244,7 +234,7 @@ def test_oasis_singlecoil_unet_reconstructor_uses_packaged_checkpoint_defaults(
     model = OASISSinglecoilUnetReconstructor(
         acceleration=8,
         manifest_path=str(tmp_path / "manifest.json"),
-        device=device,
+        device=runtime_device,
     )
 
     assert captured == {
@@ -252,3 +242,94 @@ def test_oasis_singlecoil_unet_reconstructor_uses_packaged_checkpoint_defaults(
         "manifest_path": tmp_path / "manifest.json",
     }
     assert isinstance(model.model, Unet)
+
+
+def test_validate_algorithm_dataset_compatibility_accepts_supported_explicit_unets():
+    validate_algorithm_dataset_compatibility("fastmri", FASTMRI_UNET_ALGORITHM)
+    validate_algorithm_dataset_compatibility("fastmri", "unet-oasis-acceleration8")
+    validate_algorithm_dataset_compatibility("oasis", "unet-oasis-acceleration4")
+
+
+def test_validate_algorithm_dataset_compatibility_rejects_unsupported_oasis_fastmri_combo():
+    with pytest.raises(ValueError, match="unet-fastmri"):
+        validate_algorithm_dataset_compatibility("oasis", FASTMRI_UNET_ALGORITHM)
+
+
+def test_uses_oasis_centered_path_tracks_dataset_and_explicit_algorithm():
+    assert uses_oasis_centered_path("oasis", FASTMRI_UNET_ALGORITHM) is True
+    assert uses_oasis_centered_path("fastmri", "unet-oasis-acceleration8") is True
+    assert uses_oasis_centered_path("fastmri", FASTMRI_UNET_ALGORITHM) is False
+    assert uses_oasis_centered_path("fastmri", "tv-pgd") is False
+
+
+def test_choose_reconstructor_selects_oasis_unet_for_fastmri_when_requested(monkeypatch):
+    captured = {}
+
+    class Marker:
+        pass
+
+    def fake_oasis(*, acceleration, device):
+        captured["acceleration"] = acceleration
+        captured["device"] = device
+        return Marker()
+
+    monkeypatch.setattr(
+        "mri_recon.reconstruction.inference.OASISSinglecoilUnetReconstructor",
+        fake_oasis,
+    )
+
+    reconstructor = choose_reconstructor(
+        "unet-oasis-acceleration8",
+        dataset="fastmri",
+        device="cpu",
+    )
+
+    assert isinstance(reconstructor, Marker)
+    assert captured == {"acceleration": 8, "device": "cpu"}
+
+
+def test_choose_reconstructor_uses_fastmri_unet_by_default(monkeypatch):
+    marker = object()
+
+    def fake_fastmri(*, device):
+        assert device == "cpu"
+        return marker
+
+    monkeypatch.setattr(
+        "mri_recon.reconstruction.inference.FastMRISinglecoilUnetReconstructor",
+        fake_fastmri,
+    )
+
+    reconstructor = choose_reconstructor(
+        FASTMRI_UNET_ALGORITHM,
+        dataset="fastmri",
+        device="cpu",
+    )
+
+    assert reconstructor is marker
+
+
+def test_choose_reconstructor_supports_all_explicit_oasis_algorithms(monkeypatch):
+    captured = []
+
+    class Marker:
+        pass
+
+    def fake_oasis(*, acceleration, device):
+        captured.append((acceleration, device))
+        return Marker()
+
+    monkeypatch.setattr(
+        "mri_recon.reconstruction.inference.OASISSinglecoilUnetReconstructor",
+        fake_oasis,
+    )
+
+    for algorithm_name in OASIS_UNET_ALGORITHMS:
+        reconstructor = choose_reconstructor(
+            algorithm_name,
+            dataset="fastmri",
+            device="cpu",
+        )
+        assert isinstance(reconstructor, Marker)
+
+    assert captured == [(4, "cpu"), (8, "cpu"), (10, "cpu")]

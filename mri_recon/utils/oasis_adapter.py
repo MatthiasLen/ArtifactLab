@@ -8,7 +8,7 @@ import numpy as np
 import torch
 from torch.utils.data import Dataset
 
-from mri_recon.distortions import BaseDistortion
+from mri_recon.distortions import BaseDistortion, DistortedKspaceMultiCoilMRI
 
 
 class OasisSliceDataset(Dataset):
@@ -165,6 +165,57 @@ def kspace_to_image(y: torch.Tensor) -> torch.Tensor:
         norm="ortho",
     )
     return torch.view_as_real(x_complex).movedim(-1, 1).contiguous()
+
+
+def fastmri_measurement_to_image(
+    y: torch.Tensor,
+    device: torch.device | str | None = None,
+) -> torch.Tensor:
+    """Convert FastMRI measurements to image space using the repo's native physics.
+
+    Parameters
+    ----------
+    y : torch.Tensor
+        FastMRI measurement tensor with shape ``(B, 2, H, W)``.
+    device : torch.device | str, optional
+        Device on which to instantiate the temporary native physics operator.
+
+    Returns
+    -------
+    torch.Tensor
+        Complex image tensor with shape ``(B, 2, H, W)``.
+    """
+
+    if device is None:
+        device = y.device
+    physics = DistortedKspaceMultiCoilMRI(
+        distortion=BaseDistortion(),
+        img_size=(1, 2, *y.shape[-2:]),
+        device=device,
+    )
+    return physics.A_adjoint(y)
+
+
+def fastmri_measurement_to_oasis_kspace(
+    y: torch.Tensor,
+    device: torch.device | str | None = None,
+) -> torch.Tensor:
+    """Adapt FastMRI measurements to the centered OASIS k-space convention.
+
+    Parameters
+    ----------
+    y : torch.Tensor
+        FastMRI measurement tensor with shape ``(B, 2, H, W)``.
+    device : torch.device | str, optional
+        Device on which to instantiate the temporary native physics operator.
+
+    Returns
+    -------
+    torch.Tensor
+        Centered OASIS-convention k-space tensor with shape ``(B, 2, H, W)``.
+    """
+
+    return image_to_kspace(fastmri_measurement_to_image(y, device=device))
 
 
 class OasisCenteredFFTPhysics:
