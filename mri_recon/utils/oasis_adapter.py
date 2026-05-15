@@ -200,7 +200,20 @@ def fastmri_measurement_to_oasis_kspace(
     y: torch.Tensor,
     device: torch.device | str | None = None,
 ) -> torch.Tensor:
-    """Adapt FastMRI measurements to the centered OASIS k-space convention."""
+    """Adapt FastMRI measurements to the centered OASIS k-space convention.
+
+    Parameters
+    ----------
+    y : torch.Tensor
+        FastMRI measurement tensor with shape ``(B, 2, H, W)``.
+    device : torch.device | str, optional
+        Device on which to instantiate the temporary native physics operator.
+
+    Returns
+    -------
+    torch.Tensor
+        Centered OASIS-convention k-space tensor with shape ``(B, 2, H, W)``.
+    """
 
     return image_to_kspace(fastmri_measurement_to_image(y, device=device))
 
