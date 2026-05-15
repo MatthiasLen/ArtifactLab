@@ -10,6 +10,7 @@ from .oasis_adapter import (
 )
 from .oasis_adapter import image_to_kspace as image_to_kspace
 from .oasis_adapter import kspace_to_image as kspace_to_image
+from .plot import save_kspace_plot as save_kspace_plot
 
 __all__ = [
     "download_file_with_sha256",
@@ -22,4 +23,5 @@ __all__ = [
     "matches_sha256",
     "OasisCenteredFFTPhysics",
     "OasisSliceDataset",
+    "save_kspace_plot",
 ]

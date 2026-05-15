@@ -14,7 +14,6 @@ from pathlib import Path
 import deepinv as dinv
 import torch
 
-from plot import save_kspace_plot
 from mri_recon.distortions import (
     AnisotropicResolutionReduction,
     BaseDistortion,
@@ -49,6 +48,7 @@ from mri_recon.utils import (
     fastmri_measurement_to_oasis_kspace,
     image_to_kspace,
     kspace_to_image,
+    save_kspace_plot,
 )
 
 FASTMRI_REPORT_DIR = Path("reports") / "fastmri_inference_plot"
@@ -56,15 +56,15 @@ OASIS_REPORT_DIR = Path("reports") / "oasis_inference_plot"
 FASTMRI_REPORT_DIR.mkdir(parents=True, exist_ok=True)
 OASIS_REPORT_DIR.mkdir(parents=True, exist_ok=True)
 ALGORITHMS = [
-    # "zero-filled",
+    "zero-filled",
     # "conjugate-gradient",
     # "ram",
     # "dip",
-    # "tv-pgd",
+    "tv-pgd",
     # "wavelet-fista",
-    # "tv-fista",
+    "tv-fista",
     # "tv-pdhg",
-    *list(EXPLICIT_UNET_ALGORITHMS)
+    *list(EXPLICIT_UNET_ALGORITHMS),
 ]
 
 DISTORTIONS = [
