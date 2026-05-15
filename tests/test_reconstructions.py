@@ -9,8 +9,6 @@ import deepinv as dinv
 
 from mri_recon.reconstruction._fastmri_unet import Unet
 from mri_recon.reconstruction.deep import (
-    RAMReconstructor,
-    DeepImagePriorReconstructor,
     FastMRISinglecoilUnetReconstructor,
     OASISSinglecoilUnetReconstructor,
 )
@@ -20,13 +18,6 @@ from mri_recon.reconstruction.inference import (
     choose_reconstructor,
     uses_oasis_centered_path,
     validate_algorithm_dataset_compatibility,
-)
-from mri_recon.reconstruction.classic import (
-    ZeroFilledReconstructor,
-    ConjugateGradientReconstructor,
-    TVPGDReconstructor,
-    WaveletFISTAReconstructor,
-    TVFISTAReconstructor,
 )
 from mri_recon.distortions import DistortedKspaceMultiCoilMRI
 
@@ -41,33 +32,13 @@ ALGORITHMS = [
 ]
 
 
-def choose_algorithm(name, img_size, device):
-    match name:
-        case "zero-filled":
-            return ZeroFilledReconstructor()
-        case "conjugate-gradient":
-            return ConjugateGradientReconstructor(max_iter=20)
-        case "ram":
-            return RAMReconstructor(default_sigma=0.05, device=device)
-        case "dip":
-            return DeepImagePriorReconstructor(img_size=img_size[-2:], n_iter=100)
-        case "tv-pgd":
-            return TVPGDReconstructor(n_iter=100, verbose=False)
-        case "tv-fista":
-            return TVFISTAReconstructor(n_iter=100, verbose=False)
-        case "wavelet-fista":
-            return WaveletFISTAReconstructor(n_iter=100, verbose=False, device=device)
-        case _:
-            raise ValueError(f"Unknown algorithm {name!r}")
-
-
-@pytest.fixture
-def compute_device():
+@pytest.fixture(name="runtime_device")
+def fixture_runtime_device():
     return "cpu"
 
 
 @pytest.mark.parametrize("name", ALGORITHMS)
-def test_reconstructors(name, compute_device):
+def test_reconstructors(name, runtime_device):
     """
     Test that reconstruction algorithms work end to end on a dummy example.
     """
@@ -76,14 +47,14 @@ def test_reconstructors(name, compute_device):
         img_size=(32, 32),
         grayscale=True,
         resize_mode="resize",
-        device=compute_device,
+        device=runtime_device,
     )
     x = torch.cat([x, torch.zeros_like(x)], dim=1)  # dummy complex data
 
-    model = choose_algorithm(name, img_size=x.shape[1:], device=compute_device)
+    model = choose_reconstructor(name, img_size=x.shape[1:], device=runtime_device)
 
     physics = DistortedKspaceMultiCoilMRI(
-        img_size=(1, 2, *x.shape[-2:]), coil_maps=1, device=compute_device
+        img_size=(1, 2, *x.shape[-2:]), coil_maps=1, device=runtime_device
     )
 
     y = physics(x)
@@ -93,7 +64,7 @@ def test_reconstructors(name, compute_device):
     assert x_hat.shape == x.shape
 
 
-def test_fastmri_singlecoil_unet_reconstructor(compute_device, tmp_path, monkeypatch):
+def test_fastmri_singlecoil_unet_reconstructor(runtime_device, tmp_path, monkeypatch):
     """
     Test the FastMRI UNet reconstructor end to end using local fixture weights.
     """
@@ -117,16 +88,16 @@ def test_fastmri_singlecoil_unet_reconstructor(compute_device, tmp_path, monkeyp
         img_size=(32, 32),
         grayscale=True,
         resize_mode="resize",
-        device=compute_device,
+        device=runtime_device,
     )
     x = torch.cat([x, torch.zeros_like(x)], dim=1)
 
     model = FastMRISinglecoilUnetReconstructor(
-        device=compute_device,
+        device=runtime_device,
         state_dict_file=str(weights_path),
     )
     physics = DistortedKspaceMultiCoilMRI(
-        img_size=(1, 2, *x.shape[-2:]), coil_maps=1, device=compute_device
+        img_size=(1, 2, *x.shape[-2:]), coil_maps=1, device=runtime_device
     )
 
     y = physics(x)
@@ -136,7 +107,7 @@ def test_fastmri_singlecoil_unet_reconstructor(compute_device, tmp_path, monkeyp
     assert torch.allclose(x_hat[:, 1], torch.zeros_like(x_hat[:, 1]))
 
 
-def test_oasis_singlecoil_unet_reconstructor_loads_lightning_checkpoint(compute_device, tmp_path):
+def test_oasis_singlecoil_unet_reconstructor_loads_lightning_checkpoint(runtime_device, tmp_path):
     """
     Test the OASIS UNet reconstructor with a Lightning-style checkpoint.
     """
@@ -152,16 +123,16 @@ def test_oasis_singlecoil_unet_reconstructor_loads_lightning_checkpoint(compute_
         img_size=(32, 32),
         grayscale=True,
         resize_mode="resize",
-        device=compute_device,
+        device=runtime_device,
     )
     x = torch.cat([x, torch.zeros_like(x)], dim=1)
 
     model = OASISSinglecoilUnetReconstructor(
         checkpoint_file=str(weights_path),
-        device=compute_device,
+        device=runtime_device,
     )
     physics = DistortedKspaceMultiCoilMRI(
-        img_size=(1, 2, *x.shape[-2:]), coil_maps=1, device=compute_device
+        img_size=(1, 2, *x.shape[-2:]), coil_maps=1, device=runtime_device
     )
 
     y = physics(x)
@@ -226,7 +197,7 @@ def test_oasis_resolve_default_checkpoint_downloads_manifest_and_checkpoint(tmp_
 
 
 def test_oasis_singlecoil_unet_reconstructor_uses_packaged_checkpoint_defaults(
-    compute_device, tmp_path, monkeypatch
+    runtime_device, tmp_path, monkeypatch
 ):
     monkeypatch.setattr(
         OASISSinglecoilUnetReconstructor,
@@ -263,7 +234,7 @@ def test_oasis_singlecoil_unet_reconstructor_uses_packaged_checkpoint_defaults(
     model = OASISSinglecoilUnetReconstructor(
         acceleration=8,
         manifest_path=str(tmp_path / "manifest.json"),
-        device=compute_device,
+        device=runtime_device,
     )
 
     assert captured == {

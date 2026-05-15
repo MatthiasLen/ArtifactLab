@@ -40,6 +40,7 @@ from mri_recon.reconstruction import (
     OASISSinglecoilUnetReconstructor,
     choose_reconstructor,
     uses_oasis_centered_path,
+    validate_algorithm_dataset_compatibility,
 )
 from mri_recon.utils import (
     OasisCenteredFFTPhysics,
@@ -63,8 +64,9 @@ ALGORITHMS = [
     # "wavelet-fista",
     # "tv-fista",
     # "tv-pdhg",
-    *EXPLICIT_UNET_ALGORITHMS,
+    *list(EXPLICIT_UNET_ALGORITHMS)
 ]
+
 DISTORTIONS = [
     "Cartesian undersampling (variable density)",
     "Cartesian undersampling (uniform random)",
@@ -327,6 +329,9 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     selected_algorithms = ALGORITHMS if args.algorithm == "" else [args.algorithm]
+    selected_distortions = DISTORTIONS if args.distortion == "" else [args.distortion]
+    for algo_name in selected_algorithms:
+        validate_algorithm_dataset_compatibility(args.dataset, algo_name)
 
     # set up report dir
     REPORT_DIR = OASIS_REPORT_DIR if args.dataset == "oasis" else FASTMRI_REPORT_DIR
@@ -365,7 +370,7 @@ if __name__ == "__main__":
                 dataset=args.dataset,
             ).to(device)
 
-            for distortion_name in DISTORTIONS if args.distortion == "" else [args.distortion]:
+            for distortion_name in selected_distortions:
                 distortion = choose_distortion(
                     distortion_name,
                     keep_fraction=args.keep_fraction,
