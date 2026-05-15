@@ -1,6 +1,14 @@
 import hashlib
 from io import BytesIO
 
+import torch
+
+from mri_recon.distortions import BaseDistortion, DistortedKspaceMultiCoilMRI
+from mri_recon.utils.oasis_adapter import (
+    fastmri_measurement_to_image,
+    fastmri_measurement_to_oasis_kspace,
+    kspace_to_image,
+)
 from mri_recon.utils.io import download_file_with_sha256, download_google_drive_file_with_sha256
 
 
@@ -66,3 +74,28 @@ def test_download_google_drive_file_with_sha256_confirms_large_download(tmp_path
 
     assert destination.read_bytes() == payload
     assert any("confirm=t" in url and "uuid=uuid-456" in url for url in requested_urls)
+
+
+def test_fastmri_measurement_helpers_match_centered_oasis_path():
+    x = torch.randn(1, 2, 16, 12)
+    physics = DistortedKspaceMultiCoilMRI(
+        distortion=BaseDistortion(),
+        img_size=(1, 2, *x.shape[-2:]),
+        device="cpu",
+    )
+    y_fastmri = physics.A(x)
+    x_native = physics.A_adjoint(y_fastmri)
+    y_oasis = fastmri_measurement_to_oasis_kspace(y_fastmri, device="cpu")
+
+    assert torch.allclose(
+        fastmri_measurement_to_image(y_fastmri, device="cpu"),
+        x_native,
+        atol=1e-6,
+        rtol=1e-6,
+    )
+    assert torch.allclose(
+        kspace_to_image(y_oasis),
+        x_native,
+        atol=1e-6,
+        rtol=1e-6,
+    )

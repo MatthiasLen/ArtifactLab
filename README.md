@@ -63,16 +63,22 @@ uv run python -c "import torch; print(torch.__version__, torch.cuda.is_available
 Run the FastMRI plotting example with local FastMRI k-space files:
 
 ```bash
-python examples/fastmri_inference_plot.py --source /path/to/fastmri/singlecoil_val --dataset fastmri --algorithm unet
+python examples/fastmri_inference_plot.py --source /path/to/fastmri/singlecoil_val --dataset fastmri --algorithm unet-fastmri
+```
+
+Run the same FastMRI data through the packaged OASIS U-Net by choosing an explicit OASIS checkpoint variant. The example adapts the FastMRI measurements to the centered OASIS FFT convention automatically:
+
+```bash
+python examples/fastmri_inference_plot.py --source /path/to/fastmri/singlecoil_val --dataset fastmri --algorithm unet-oasis-acceleration8
 ```
 
 Run the same lightweight example on OASIS data. The packaged OASIS split CSV and U-Net checkpoint are downloaded automatically when missing:
 
 ```bash
-python examples/fastmri_inference_plot.py --source /path/to/oasis_cross_sectional_data --dataset oasis --algorithm unet
+python examples/fastmri_inference_plot.py --source /path/to/oasis_cross_sectional_data --dataset oasis --algorithm unet-oasis-acceleration4
 ```
 
-For OASIS, `--oasis_checkpoint_acceleration` only selects the packaged U-Net weights by their training acceleration. Distortion undersampling is still controlled by `--keep_fraction` and `--center_fraction`.
+Supported explicit U-Net algorithms are `unet-fastmri`, `unet-oasis-acceleration4`, `unet-oasis-acceleration8`, and `unet-oasis-acceleration10`. `unet-fastmri` on the OASIS dataset is intentionally rejected.
 
 ## Pre-commit
 
