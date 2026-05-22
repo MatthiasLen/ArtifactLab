@@ -52,11 +52,6 @@ uv run python -c "import torch; print(torch.__version__, torch.cuda.is_available
 
 The example script also exposes several named `CartesianUndersampling` variants, including variable-density random, uniform random, and equispaced masks.
 
-## Possible Extensions
-
-- Rician Noise (Noise Level (Glancing))
-- Modification of sensitivity map (RoI Homogeneity (Glancing))
-
 ## Inference Examples
 
 The script [examples/fastmri_inference_plot.py](examples/fastmri_inference_plot.py) writes comparison figures to `reports/fastmri_inference_plot` or `reports/oasis_inference_plot`.
