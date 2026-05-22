@@ -16,7 +16,7 @@ Reconstruction playground for the MRI Recon Metrics Reloaded workgroup.
 | `TVPDHGReconstructor` | `tv-pdhg` | Variational iterative | Primal-dual hybrid gradient / Chambolle-Pock optimization with total-variation regularization. |
 | `RAMReconstructor` | `ram` | Deep learning | Wrapper around the DeepInverse RAM model, with input normalization based on the adjoint reconstruction. |
 | `DeepImagePriorReconstructor` | `dip` | Deep learning | Deep Image Prior reconstruction using an untrained convolutional decoder optimized at inference time. |
-| `FastMRISinglecoilUnetReconstructor` | `unet` | Deep learning | Wrapper around the pretrained fastMRI single-coil U-Net, returning a magnitude-based reconstruction with a zero imaginary channel. |
+| `FastMRISinglecoilUnetReconstructor` | `unet` | Deep learning | Wrapper around the fastMRI single-coil U-Net trained on the Knee dataset, returning a magnitude-based reconstruction with a zero imaginary channel. |
 | `OASISSinglecoilUnetReconstructor` | `oasis-unet` | Deep learning | Wrapper around a trained OASIS single-coil U-Net checkpoint, reusing the shared fastMRI-derived U-Net module. |
 
 ## Implemented Distortions
