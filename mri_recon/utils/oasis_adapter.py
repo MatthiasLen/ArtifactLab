@@ -7,6 +7,7 @@ from pathlib import Path
 import numpy as np
 import torch
 from torch.utils.data import Dataset
+import deepinv as dinv
 
 from mri_recon.distortions import BaseDistortion, DistortedKspaceMultiCoilMRI
 
@@ -122,6 +123,76 @@ class OasisSliceDataset(Dataset):
         return volume
 
 
+class OasisCenterSliceFolderDataset(Dataset):
+    """Load 2D OASIS slices from Analyze/NIfTI volumes.
+    Select a center slice from all subjects in the folder.
+
+    Parameters
+    ----------
+    data_path : Path
+        Root directory containing OASIS subject folders.
+
+    """
+
+    def __init__(
+        self,
+        data_path: Path,
+    ) -> None:
+        try:
+            import nibabel as nib
+        except ImportError as exc:
+            raise ImportError(
+                "OASIS loading requires nibabel. Install the project dependencies "
+                "or add nibabel to your environment before using OasisSliceDataset."
+            ) from exc
+
+        self._nib = nib
+        self.data_path = Path(data_path)
+        self.subject_paths = self._discover_subject_paths()
+
+    def __len__(self) -> int:
+        """Return the number of available slices."""
+
+        return len(self.subject_paths)
+
+    def __getitem__(self, index: int) -> dict[str, object]:
+        """Return one complex-valued OASIS slice in repo tensor convention."""
+
+        volume = self._get_volume(list(self.subject_paths.values())[0])
+        n_slices, _, _ = volume.shape
+        slice_num = n_slices // 2
+        subject_id = list(self.subject_paths.keys())[0]
+        target_np = np.ascontiguousarray(volume[slice_num], dtype=np.float32)
+        real = torch.from_numpy(target_np)
+        x = torch.stack([real, torch.zeros_like(real)], dim=0)
+        return {"x": x.float(), "subject_id": subject_id, "slice_num": slice_num}
+
+    def _discover_subject_paths(self) -> dict[str, Path]:
+        subject_paths = {}
+        for subject_dir in sorted(self.data_path.iterdir()):
+            if not subject_dir.is_dir():
+                continue
+            image_glob = subject_dir / "PROCESSED" / "MPRAGE" / "T88_111"
+            matches = sorted(image_glob.glob("*t88_gfc.img"))
+            if matches:
+                subject_paths[subject_dir.name] = matches[0]
+
+        if not subject_paths:
+            raise FileNotFoundError(
+                "Could not find OASIS subject folders under "
+                f"{self.data_path} matching PROCESSED/MPRAGE/T88_111/*t88_gfc.img."
+            )
+        return subject_paths
+
+    def _get_volume(self, subject_path: str) -> np.ndarray:
+        image_data = self._nib.load(subject_path).get_fdata(dtype=np.float32)
+        volume = np.ascontiguousarray(
+            np.transpose(np.squeeze(image_data), (1, 0, 2)),
+            dtype=np.float32,
+        )
+        return volume
+
+
 def image_to_kspace(x: torch.Tensor) -> torch.Tensor:
     """Convert channel-first complex images to centered k-space.
 
@@ -169,6 +240,8 @@ def kspace_to_image(y: torch.Tensor) -> torch.Tensor:
 
 def fastmri_measurement_to_image(
     y: torch.Tensor,
+    coil_maps: torch.Tensor | None = None,
+    rss: bool = False,
     device: torch.device | str | None = None,
 ) -> torch.Tensor:
     """Convert FastMRI measurements to image space using the repo's native physics.
@@ -177,6 +250,11 @@ def fastmri_measurement_to_image(
     ----------
     y : torch.Tensor
         FastMRI measurement tensor with shape ``(B, 2, H, W)``.
+    coil_maps : torch.Tensor | None, optional
+        Coil sensitivity maps with shape ``(B, C, H, W)``, where ``C`` is the number of coils.
+    rss : bool, optional
+        If ``True``, return root-sum-of-squares image across coils. Otherwise,
+        return coil-combined image using the provided coil sensitivity maps. Defaults to ``False``.
     device : torch.device | str, optional
         Device on which to instantiate the temporary native physics operator.
 
@@ -188,16 +266,17 @@ def fastmri_measurement_to_image(
 
     if device is None:
         device = y.device
-    physics = DistortedKspaceMultiCoilMRI(
-        distortion=BaseDistortion(),
+    physics = dinv.physics.MultiCoilMRI(
         img_size=(1, 2, *y.shape[-2:]),
+        coil_maps=coil_maps,
         device=device,
     )
-    return physics.A_adjoint(y)
+    return physics.A_adjoint(y, rss=rss)
 
 
 def fastmri_measurement_to_oasis_kspace(
     y: torch.Tensor,
+    coil_maps: torch.Tensor | None = None,
     device: torch.device | str | None = None,
 ) -> torch.Tensor:
     """Adapt FastMRI measurements to the centered OASIS k-space convention.
@@ -206,6 +285,8 @@ def fastmri_measurement_to_oasis_kspace(
     ----------
     y : torch.Tensor
         FastMRI measurement tensor with shape ``(B, 2, H, W)``.
+    coil_maps : torch.Tensor | None, optional
+        Coil sensitivity maps with shape ``(B, C, H, W)``, where ``C`` is the number of coils.
     device : torch.device | str, optional
         Device on which to instantiate the temporary native physics operator.
 
@@ -215,10 +296,68 @@ def fastmri_measurement_to_oasis_kspace(
         Centered OASIS-convention k-space tensor with shape ``(B, 2, H, W)``.
     """
 
-    return image_to_kspace(fastmri_measurement_to_image(y, device=device))
+    return image_to_kspace(fastmri_measurement_to_image(y, coil_maps=coil_maps, device=device))
 
 
-class OasisCenteredFFTPhysics:
+def image_to_fast_mri_measurement(
+    x: torch.Tensor,
+    coil_maps: torch.Tensor | None = None,
+    device: torch.device | str | None = None,
+) -> torch.Tensor:
+    """Perform FFT from image space to k-space (fast-MRI convention).
+
+    Parameters
+    ----------
+    y : torch.Tensor
+        OASIS k-space measurement tensor with shape ``(B, 2, H, W)``.
+    coil_maps : torch.Tensor | None, optional
+        Coil sensitivity maps with shape ``(B, C, H, W)``, where ``C`` is the number of coils.
+    device : torch.device | str, optional
+        Device on which to instantiate the temporary native physics operator.
+
+    Returns
+    -------
+    torch.Tensor
+        FastMRI-convention k-space tensor with shape ``(B, 2, H, W)``.
+    """
+
+    if device is None:
+        device = x.device
+    physics = DistortedKspaceMultiCoilMRI(
+        distortion=BaseDistortion(),
+        img_size=(1, 2, *x.shape[-2:]),
+        coil_maps=coil_maps,
+        device=device,
+    )
+    return physics.A(x)
+
+
+def oasis_kspace_to_fastmri_measurement(
+    y: torch.Tensor,
+    coil_maps: torch.Tensor | None = None,
+    device: torch.device | str | None = None,
+) -> torch.Tensor:
+    """Adapt OASIS-convention k-space to FastMRI measurement convention.
+
+    Parameters
+    ----------
+    y : torch.Tensor
+        Centered OASIS-convention k-space tensor with shape ``(B, 2, H, W)``.
+    coil_maps : torch.Tensor | None, optional
+        Coil sensitivity maps with shape ``(B, C, H, W)``, where ``C`` is the number of coils.
+    device : torch.device | str, optional
+        Device on which to instantiate the temporary native physics operator.
+
+    Returns
+    -------
+    torch.Tensor
+        FastMRI-convention k-space tensor with shape ``(B, 2, H, W)``.
+    """
+
+    return image_to_fast_mri_measurement(kspace_to_image(y), coil_maps=coil_maps, device=device)
+
+
+class OasisCenteredFFTPhysics(dinv.physics.LinearPhysics):
     """Physics adapter matching the OASIS U-Net FFT convention.
 
     Parameters
@@ -227,7 +366,8 @@ class OasisCenteredFFTPhysics:
         K-space distortion applied after the centered FFT.
     """
 
-    def __init__(self, distortion: BaseDistortion) -> None:
+    def __init__(self, distortion: BaseDistortion, *args, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
         self.distortion = distortion
 
     def A(self, x: torch.Tensor) -> torch.Tensor:
@@ -261,3 +401,14 @@ class OasisCenteredFFTPhysics:
         """
 
         return kspace_to_image(self.distortion.A_adjoint(y))
+
+    def A_dagger(self, y: torch.Tensor, **kwargs) -> torch.Tensor:
+        r"""
+        Computes least squares solution to the MRI inverse problem, as proposed in `SENSE: Sensitivity encoding for fast MRI <https://doi.org/10.1002/(SICI)1522-2594(199911)42:5%3C952::AID-MRM16%3E3.0.CO;2-S>`_.
+
+        By default uses conjugate gradient solver. Overwrite default solver arguments by passing `kwargs`. See :func:`deepinv.optim.linear.least_squares` for details.
+
+        :param dict kwargs: kwargs to pass to base :meth:`deepinv.physics.LinearPhysics.A_dagger`.
+        :returns: (:class:`torch.Tensor`) image with shape `(B,2,...,H,W)`
+        """
+        return super().A_dagger(y, **kwargs)

@@ -51,6 +51,23 @@ def validate_algorithm_dataset_compatibility(dataset: str, algorithm: str) -> No
             "The algorithm 'unet-fastmri' is not supported on the OASIS dataset. "
             "Use one of the explicit OASIS U-Net algorithms instead."
         )
+    elif dataset == "fastmri" and algorithm in OASIS_UNET_ALGORITHMS:
+        raise ValueError(
+            "The algorithm 'unet-oasis' is not supported on the FastMRI dataset. "
+            "Use the 'unet-fastmri' algorithm instead."
+        )
+    elif dataset == "fastmri-multicoil" and algorithm == FASTMRI_UNET_ALGORITHM:
+        raise ValueError(
+            "The algorithm 'unet-fastmri' (knee) is not supported on the FastMRI multicoil (brain) dataset. "
+            "Use the 'unet-oasis' algorithm instead."
+        )
+    elif dataset in ["cmrxrecon", "prostate"] and algorithm in [FASTMRI_UNET_ALGORITHM] + list(
+        OASIS_UNET_ALGORITHMS.keys()
+    ):
+        raise ValueError(
+            f"The algorithm {algorithm} ({'heart' if dataset == 'cmrxrecon' else 'prostate'}) is not supported on the cmrxrecon or prostate datasets. "
+            "No trained unet model available for this dataset."
+        )
 
 
 def choose_reconstructor(

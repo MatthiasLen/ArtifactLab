@@ -11,11 +11,19 @@ import torch
 def _kspace_to_log_magnitude(kspace: torch.Tensor) -> torch.Tensor:
     """Convert k-space tensor to a log-magnitude image for visualization."""
 
-    if kspace.ndim == 4:
+    if kspace.ndim == 5:
+        # show only middle coil for visualization
+        # (1, 2, C, H, W) -> (2, H, W)
+        kspace = kspace[0, :, kspace.shape[2] // 2]
+    elif kspace.ndim == 4:
+        # (1, 2, H, W) -> (2, H, W)
         kspace = kspace[0]
-    if kspace.ndim != 3 or kspace.shape[0] != 2:
+    elif kspace.ndim == 3:
+        pass
+        # (2, H, W) -> (2, H, W)
+    else:
         raise ValueError(
-            f"Expected k-space with shape (2, H, W) or (1, 2, H, W), got {tuple(kspace.shape)}"
+            f"Expected k-space with shape (2, H, W) or (1, 2, H, W) or (1, 2, C, H, W),got {tuple(kspace.shape)}"
         )
 
     kspace = kspace.detach().cpu()
@@ -43,10 +51,17 @@ def save_kspace_plot(
 ) -> None:
     """Save side-by-side log-magnitude visualizations of clean and distorted k-space."""
 
+    print("transforming k-space to log-magnitude images for visualization...")
+    print(f"\tclean k-space shape: {clean_kspace.shape}")
+    print(f"\tdistorted k-space shape: {distorted_kspace.shape}")
+
     images = [
         ("Original k-space", _kspace_to_log_magnitude(clean_kspace)),
         ("Distorted k-space", _kspace_to_log_magnitude(distorted_kspace)),
     ]
+
+    print(f"clean k-space magnitude shape: {images[0][1].shape}")
+    print(f"distorted k-space magnitude shape: {images[1][1].shape}")
 
     fig, axes = plt.subplots(1, 2, figsize=(8, 4), constrained_layout=True)
     fig.suptitle(f"Distortion: {distortion_label}")
