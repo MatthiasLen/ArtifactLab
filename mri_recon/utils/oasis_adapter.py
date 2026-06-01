@@ -9,7 +9,7 @@ import torch
 from torch.utils.data import Dataset
 import deepinv as dinv
 
-from mri_recon.distortions import BaseDistortion, DistortedKspaceMultiCoilMRI
+from mri_recon.distortions import BaseDistortion
 
 
 class OasisSliceDataset(Dataset):

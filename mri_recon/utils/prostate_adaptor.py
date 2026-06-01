@@ -4,8 +4,11 @@ import h5py
 import numpy as np
 import torch
 
+
 class FastMRIProstateDataset(torch.utils.data.Dataset):
-    def __init__(self, data_path: str, num_samples: None | int = None, slice_index: str="middle") -> None:
+    def __init__(
+        self, data_path: str, num_samples: None | int = None, slice_index: str = "middle"
+    ) -> None:
         self.data_path = data_path
         self.num_samples = num_samples
         self.slice_index = slice_index
@@ -30,9 +33,11 @@ class FastMRIProstateDataset(torch.utils.data.Dataset):
                 continue
 
             if self.slice_index == "middle":
-                image_result_list.append(image_recon[image_recon.shape[0]//2])
+                image_result_list.append(image_recon[image_recon.shape[0] // 2])
             else:
-                image_result_list.extend([image_recon[i, :, :] for i in range(image_recon.shape[0])])
+                image_result_list.extend(
+                    [image_recon[i, :, :] for i in range(image_recon.shape[0])]
+                )
 
         return image_result_list
 

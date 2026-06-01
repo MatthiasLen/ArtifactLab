@@ -15,7 +15,6 @@ from .oasis_adapter import (
 from .oasis_adapter import image_to_kspace as image_to_kspace
 from .oasis_adapter import kspace_to_image as kspace_to_image
 from .oasis_adapter import image_to_fastmri_measurement as image_to_fastmri_measurement
-from .oasis_adapter import oasis_kspace_to_fastmri_measurement as oasis_kspace_to_fastmri_measurement
 from .prostate_adaptor import FastMRIProstateDataset as FastMRIProstateDataset
 from .plot import save_kspace_plot as save_kspace_plot
 from .plot import _kspace_to_log_magnitude as _kspace_to_log_magnitude

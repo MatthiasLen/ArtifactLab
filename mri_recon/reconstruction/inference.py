@@ -48,7 +48,7 @@ def compatible_dataset_with_reconstructor(dataset: str, reconstructor_name: str)
 
     # fast mri u-net is only trained with knee data
     if reconstructor_name == FASTMRI_UNET_ALGORITHM:
-        if (dataset == "fastmri_knee"):
+        if dataset == "fastmri_knee":
             return True
         else:
             return False
@@ -59,7 +59,7 @@ def compatible_dataset_with_reconstructor(dataset: str, reconstructor_name: str)
             return True
         else:
             return False
-    
+
     # all other (classic) reconstructors work with any dataset:
     else:
         return True
@@ -91,7 +91,9 @@ def choose_reconstructor(
     """
 
     if dataset is not None and not compatible_dataset_with_reconstructor(dataset, name):
-        raise ValueError(f"Reconstructor {name} is not compatible with dataset {dataset}, because it was trained with a different image domain.")
+        raise ValueError(
+            f"Reconstructor {name} is not compatible with dataset {dataset}, because it was trained with a different image domain."
+        )
 
     match name:
         case "zero-filled":

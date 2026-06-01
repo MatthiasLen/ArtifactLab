@@ -178,17 +178,16 @@ class DistortedKspaceMultiCoilMRI(dinv.physics.MultiCoilMRI):
         y = super().A(x)
 
         y = y.squeeze(2)  # remove coil dimension if single coil
-        
+
         return self.distortion(y)
 
     def A_adjoint(self, y: torch.Tensor) -> torch.Tensor:
-
         if len(y.shape) == (5 if self.three_d else 4):
             y = y.unsqueeze(2)  # add coil dimension for single coil
 
         y = self.distortion.A_adjoint(y)
-        
+
         return super().A_adjoint(y)
 
-    # def A_dagger(self, y: torch.Tensor, **kwargs) -> torch.Tensor:        
+    # def A_dagger(self, y: torch.Tensor, **kwargs) -> torch.Tensor:
     #     return super().A_dagger(y, coil_maps=self.coil_maps, **kwargs)

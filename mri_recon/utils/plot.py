@@ -77,7 +77,7 @@ def save_kspace_plot(
 
 def convert_image_for_save(im: torch.Tensor) -> np.ndarray:
     """
-    Convert a PyTorch tensor image complex tensor to a real-valued NumPy array 
+    Convert a PyTorch tensor image complex tensor to a real-valued NumPy array
     by calculating the magnitude.
     (B, 2, H, W)  or (B, H, W) with complex type -> (B, H, W)
 
