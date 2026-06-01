@@ -8,6 +8,8 @@ from mri_recon.utils.oasis_adapter import (
     fastmri_measurement_to_image,
     fastmri_measurement_to_oasis_kspace,
     kspace_to_image,
+    oasis_kspace_to_fastmri_measurement,
+    image_to_fastmri_measurement,
 )
 from mri_recon.utils.io import download_file_with_sha256, download_google_drive_file_with_sha256
 
@@ -96,6 +98,22 @@ def test_fastmri_measurement_helpers_match_centered_oasis_path():
     assert torch.allclose(
         kspace_to_image(y_oasis),
         x_native,
+        atol=1e-6,
+        rtol=1e-6,
+    )
+
+    y_fastmri_from_oasis = oasis_kspace_to_fastmri_measurement(y_oasis, device="cpu")
+    assert torch.allclose(
+        y_fastmri_from_oasis,
+        y_fastmri,
+        atol=1e-6,
+        rtol=1e-6,
+    )
+
+    y_fastmri_from_image = image_to_fastmri_measurement(x_native, device="cpu")
+    assert torch.allclose(
+        y_fastmri_from_image,
+        y_fastmri,
         atol=1e-6,
         rtol=1e-6,
     )
