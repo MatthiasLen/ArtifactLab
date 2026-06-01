@@ -28,18 +28,13 @@ EXPLICIT_UNET_ALGORITHMS = (FASTMRI_UNET_ALGORITHM, *tuple(OASIS_UNET_ALGORITHMS
 
 
 def uses_oasis_centered_path(
-    dataset: str,
     algorithm: str,
 ) -> bool:
     """Return whether inference should use the centered OASIS k-space path.
 
-    OASIS samples always use the centered FFT convention. FastMRI only switches
-    to that path when the selected algorithm is one of the explicit OASIS U-Net
+    The centered FFT path is only used with the explicit OASIS U-Net
     variants.
     """
-
-    if dataset == "oasis":
-        return True
     return algorithm in OASIS_UNET_ALGORITHMS
 
 

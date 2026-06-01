@@ -38,7 +38,7 @@ from mri_recon.reconstruction import (
     OASISSinglecoilUnetReconstructor,
     choose_reconstructor,
     uses_oasis_centered_path,
-    validate_algorithm_dataset_compatibility,
+    compatible_dataset_with_reconstructor,
     EXPLICIT_UNET_ALGORITHMS,
 )
 from mri_recon.utils import (
@@ -376,8 +376,13 @@ if __name__ == "__main__":
 
     selected_algorithms = ALGORITHMS if args.algorithm == "" else [args.algorithm]
     selected_distortions = DISTORTIONS if args.distortion == "" else [args.distortion]
-    for algo_name in selected_algorithms:
-        validate_algorithm_dataset_compatibility(args.dataset, algo_name)
+
+    # skip non-compatible algorithm-dataset pairs
+    selected_algorithms = [
+        algo_name
+        for algo_name in selected_algorithms
+        if compatible_dataset_with_reconstructor(args.dataset, algo_name)
+    ]
 
     # set up report dir
     if args.dataset == "fastmri":

@@ -209,7 +209,7 @@ if __name__ == "__main__":
 
                 for reconstructor_name in config["reconstruction_algorithms"]:
                     # only run on reconstructors, that use the fastmri-like k-space
-                    if not uses_oasis_centered_path(dataset_name, reconstructor_name):
+                    if not uses_oasis_centered_path(reconstructor_name):
                         print(f"\t\t{reconstructor_name} ...")
                         start = datetime.now()
                         if compatible_dataset_with_reconstructor(dataset_name, reconstructor_name):
@@ -295,7 +295,7 @@ if __name__ == "__main__":
 
                 for reconstructor_name in config["reconstruction_algorithms"]:
                     # skip all reconstructors, that don't use the oasis-centered path
-                    if uses_oasis_centered_path(dataset_name, reconstructor_name):
+                    if uses_oasis_centered_path(reconstructor_name):
                         print(f"\t\t{reconstructor_name} ...")
                         start = datetime.now()
                         if compatible_dataset_with_reconstructor(dataset_name, reconstructor_name):
