@@ -85,11 +85,8 @@ def get_measurement_sample(
     elif dataset_name == "cmrxrecon":
         # reference image, shape: (B, 2, n_timepoints, (n_coils), H, W)
         x = sample_batch[0].to(run_device)
-        print(f"\t[Debug] Reference image shape: {x.shape}, dtype: {x.dtype}")
         # k-space data, shape: (B, 2, n_timepoints, (n_coils), H, W) dtype: float32
         y = sample_batch[1].to(run_device)
-        print(f"\t[Debug] k-space shape: {y.shape}, dtype: {y.dtype}")
-
         # not available for all samples, either None or
         # shape (1, num_coils, H, W)
         coil_maps = (
@@ -99,35 +96,21 @@ def get_measurement_sample(
             and "coil_maps" in sample_batch[2]
             else None
         )
-        print(
-            f"\t[Debug] Coil maps shape: {coil_maps.shape if coil_maps is not None else None}, dtype: {coil_maps.dtype if coil_maps is not None else None}"
-        )
-        # centered k-space data, shape: (B, 2, H, W) dtype: float32
-        y_centered = fastmri_measurement_to_oasis_kspace(y, coil_maps=coil_maps, device=run_device)
-        print(f"\t[Debug] Centered k-space shape: {y_centered.shape}, dtype: {y_centered.dtype}")
-        # reconstruct coil-combined image reference from multi-coil k-space data using
-        # integrated espirit sensitivity map estimation, RSS coil combination
 
-        # x = fastmri_measurement_to_image(y, coil_maps=coil_maps, rss=True)
-        # print(f"\t[Debug] Reference image shape: {x.shape}, dtype: {x.dtype}")
+        # centered k-space data, shape: (B, 2, num_clois, H, W) dtype: float32
+        y_centered = fastmri_measurement_to_oasis_kspace(y, coil_maps=coil_maps, device=run_device)
+
     elif dataset_name == "fastmri_prostate":
-        # reference image, shape: (slices, W, H): dtype float32
+        # reference image, shape: (B, W, H): dtype float32
         x = sample_batch[0].to(run_device)
-        print(f"\t[Debug] Reference image shape: {x.shape}, type: {x.dtype}")
 
         # add zero imaginary channel:
-        # (B, slices, H, W) -> (B, 2, slices, H, W)
+        # (B, H, W) -> (B, 2, H, W)
         x = torch.stack([x, torch.zeros_like(x)], dim=1)
 
-        # y_centered = fastmri_measurement_to_oasis_kspace(y, coil_maps=coil_maps, device=run_device)
-        # create oasis-like k-space data from image:
+        # (B, 2, H, W)
         y_centered = image_to_kspace(x)
-        print(f"\t[Debug] Centered k-space shape: {y_centered.shape}, type: {y_centered.dtype}")
         y = oasis_kspace_to_fastmri_measurement(y_centered)
-
-    print(f"\tk-space shape {y.shape}[{y.dtype}] and reference image shape: {x.shape}[{x.dtype}]")
-    if coil_maps is not None:
-        print(f"\tcoil maps shape: {coil_maps.shape}[{coil_maps.dtype}]")
 
     return x, y, y_centered, coil_maps
 
@@ -284,7 +267,7 @@ if __name__ == "__main__":
                                     ),
                                     convert_image_for_save(x_corrected),
                                 )
-                                print(f"\t\t... done in {start - datetime.now()}")
+                                print(f"\t\t... done in {datetime.now() - start}")
 
                             except Exception as e:
                                 print(f"Error using {reconstructor_name}: {e}")
@@ -314,6 +297,7 @@ if __name__ == "__main__":
                     # skip all reconstructors, that don't use the oasis-centered path
                     if uses_oasis_centered_path(dataset_name, reconstructor_name):
                         print(f"\t\t{reconstructor_name} ...")
+                        start = datetime.now()
                         if compatible_dataset_with_reconstructor(dataset_name, reconstructor_name):
                             reconstructor = choose_reconstructor(
                                 reconstructor_name,
@@ -368,6 +352,7 @@ if __name__ == "__main__":
                                     ),
                                     convert_image_for_save(x_corrected),
                                 )
+                                print(f"\t\t... done in {datetime.now() - start}")
 
                             except Exception as e:
                                 print(
