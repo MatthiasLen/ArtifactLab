@@ -2,8 +2,8 @@ import hashlib
 from io import BytesIO
 
 import torch
+import deepinv as dinv
 
-from mri_recon.distortions import BaseDistortion, DistortedKspaceMultiCoilMRI
 from mri_recon.utils.oasis_adapter import (
     fastmri_measurement_to_image,
     fastmri_measurement_to_oasis_kspace,
@@ -80,8 +80,7 @@ def test_download_google_drive_file_with_sha256_confirms_large_download(tmp_path
 
 def test_fastmri_measurement_helpers_match_centered_oasis_path():
     x = torch.randn(1, 2, 16, 12)
-    physics = DistortedKspaceMultiCoilMRI(
-        distortion=BaseDistortion(),
+    physics = dinv.physics.MultiCoilMRI(
         img_size=(1, 2, *x.shape[-2:]),
         device="cpu",
     )
@@ -102,7 +101,7 @@ def test_fastmri_measurement_helpers_match_centered_oasis_path():
         rtol=1e-6,
     )
 
-    y_fastmri_from_oasis = oasis_kspace_to_fastmri_measurement(y_oasis, device="cpu")
+    y_fastmri_from_oasis = oasis_kspace_to_fastmri_measurement(y_oasis)
     assert torch.allclose(
         y_fastmri_from_oasis,
         y_fastmri,
@@ -110,7 +109,7 @@ def test_fastmri_measurement_helpers_match_centered_oasis_path():
         rtol=1e-6,
     )
 
-    y_fastmri_from_image = image_to_fastmri_measurement(x_native, device="cpu")
+    y_fastmri_from_image = image_to_fastmri_measurement(x_native)
     assert torch.allclose(
         y_fastmri_from_image,
         y_fastmri,

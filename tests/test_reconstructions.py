@@ -245,16 +245,16 @@ def test_oasis_singlecoil_unet_reconstructor_uses_packaged_checkpoint_defaults(
 
 
 def test_validate_algorithm_dataset_compatibility_accepts_supported_explicit_unets():
-    assert compatible_dataset_with_reconstructor("fastmri", FASTMRI_UNET_ALGORITHM)
-    assert compatible_dataset_with_reconstructor("fastmri", "unet-oasis-acceleration8")
+    assert compatible_dataset_with_reconstructor("fastmri_knee", FASTMRI_UNET_ALGORITHM)
+    assert compatible_dataset_with_reconstructor("fastmri_brain", "unet-oasis-acceleration8")
     assert compatible_dataset_with_reconstructor("oasis", "unet-oasis-acceleration4")
 
 
 def test_validate_algorithm_dataset_compatibility_rejects_unsupported_oasis_fastmri_combo():
     assert not compatible_dataset_with_reconstructor("oasis", FASTMRI_UNET_ALGORITHM)
-    assert not compatible_dataset_with_reconstructor("oasis", FASTMRI_UNET_ALGORITHM)
-    assert not compatible_dataset_with_reconstructor("oasis", FASTMRI_UNET_ALGORITHM)
-    assert not compatible_dataset_with_reconstructor("oasis", FASTMRI_UNET_ALGORITHM)
+    assert not compatible_dataset_with_reconstructor("fastmri_brain", FASTMRI_UNET_ALGORITHM)
+    assert not compatible_dataset_with_reconstructor("fastmri_prostate", FASTMRI_UNET_ALGORITHM)
+    assert not compatible_dataset_with_reconstructor("fastmri_knee", "unet-oasis-acceleration10")
 
 
 def test_uses_oasis_centered_algorithm():
@@ -281,7 +281,7 @@ def test_choose_reconstructor_selects_oasis_unet_for_fastmri_when_requested(monk
 
     reconstructor = choose_reconstructor(
         "unet-oasis-acceleration8",
-        dataset="fastmri",
+        dataset="oasis",
         device="cpu",
     )
 
@@ -303,7 +303,7 @@ def test_choose_reconstructor_uses_fastmri_unet_by_default(monkeypatch):
 
     reconstructor = choose_reconstructor(
         FASTMRI_UNET_ALGORITHM,
-        dataset="fastmri",
+        dataset="fastmri_knee",
         device="cpu",
     )
 
@@ -328,7 +328,7 @@ def test_choose_reconstructor_supports_all_explicit_oasis_algorithms(monkeypatch
     for algorithm_name in OASIS_UNET_ALGORITHMS:
         reconstructor = choose_reconstructor(
             algorithm_name,
-            dataset="fastmri",
+            dataset="fastmri_brain",
             device="cpu",
         )
         assert isinstance(reconstructor, Marker)
