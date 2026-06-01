@@ -296,15 +296,11 @@ def fastmri_measurement_to_oasis_kspace(
         Centered OASIS-convention k-space tensor with shape ``(B, 2, H, W)``.
     """
 
-    result = image_to_kspace(fastmri_measurement_to_image(y, coil_maps=coil_maps, device=device))
-
-    
-    return result
+    return image_to_kspace(fastmri_measurement_to_image(y, coil_maps=coil_maps, device=device))
 
 
-def image_to_fast_mri_measurement(
+def image_to_fastmri_measurement(
     x: torch.Tensor,
-    coil_maps: torch.Tensor | None = None,
     device: torch.device | str | None = None,
 ) -> torch.Tensor:
     """Perform FFT from image space to k-space (fast-MRI convention).
@@ -313,8 +309,6 @@ def image_to_fast_mri_measurement(
     ----------
     x : torch.Tensor
         image tensor with shape ``(B, 2, H, W)``.
-    coil_maps : torch.Tensor | None, optional
-        Coil sensitivity maps with shape ``(B, C, H, W)``, where ``C`` is the number of coils.
     device : torch.device | str, optional
         Device on which to instantiate the temporary native physics operator.
 
@@ -326,10 +320,9 @@ def image_to_fast_mri_measurement(
 
     if device is None:
         device = x.device
-    physics = DistortedKspaceMultiCoilMRI(
-        distortion=BaseDistortion(),
+    physics = dinv.physics.MultiCoilMRI(
         img_size=(1, 2, *x.shape[-2:]),
-        coil_maps=coil_maps,
+        coil_maps=None,
         device=device,
     )
     return physics.A(x)
@@ -352,10 +345,10 @@ def oasis_kspace_to_fastmri_measurement(
         FastMRI-convention k-space tensor with shape ``(B, 2, H, W)``.
     """
 
-    return image_to_fast_mri_measurement(kspace_to_image(y))
+    return image_to_fastmri_measurement(kspace_to_image(y))
 
 
-class OasisCenteredFFTPhysics(dinv.physics.LinearPhysics):
+class OasisCenteredFFTPhysics(dinv.utils.mixins.MRIMixin, dinv.physics.LinearPhysics):
     """Physics adapter matching the OASIS U-Net FFT convention.
 
     Parameters
@@ -400,13 +393,13 @@ class OasisCenteredFFTPhysics(dinv.physics.LinearPhysics):
 
         return kspace_to_image(self.distortion.A_adjoint(y))
 
-    def A_dagger(self, y: torch.Tensor, **kwargs) -> torch.Tensor:
-        r"""
-        Computes least squares solution to the MRI inverse problem, as proposed in `SENSE: Sensitivity encoding for fast MRI <https://doi.org/10.1002/(SICI)1522-2594(199911)42:5%3C952::AID-MRM16%3E3.0.CO;2-S>`_.
+    # def A_dagger(self, y: torch.Tensor, **kwargs) -> torch.Tensor:
+    #     r"""
+    #     Computes least squares solution to the MRI inverse problem, as proposed in `SENSE: Sensitivity encoding for fast MRI <https://doi.org/10.1002/(SICI)1522-2594(199911)42:5%3C952::AID-MRM16%3E3.0.CO;2-S>`_.
 
-        By default uses conjugate gradient solver. Overwrite default solver arguments by passing `kwargs`. See :func:`deepinv.optim.linear.least_squares` for details.
+    #     By default uses conjugate gradient solver. Overwrite default solver arguments by passing `kwargs`. See :func:`deepinv.optim.linear.least_squares` for details.
 
-        :param dict kwargs: kwargs to pass to base :meth:`deepinv.physics.LinearPhysics.A_dagger`.
-        :returns: (:class:`torch.Tensor`) image with shape `(B,2,...,H,W)`
-        """
-        return super().A_dagger(y, **kwargs)
+    #     :param dict kwargs: kwargs to pass to base :meth:`deepinv.physics.LinearPhysics.A_dagger`.
+    #     :returns: (:class:`torch.Tensor`) image with shape `(B,2,...,H,W)`
+    #     """
+    #     return super().A_dagger(y, **kwargs)

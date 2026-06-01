@@ -1,7 +1,7 @@
 """Inference various reconstructors for various distortion operators.
 
 Usage:
-    python examples/fastmri_inference_plot.py --source ../ram-experiments/data/fastmri/knee/singlecoil_val
+    python examples/run_all.py config.yaml
 """
 
 import os
@@ -10,7 +10,7 @@ import sys
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-
+from datetime import datetime
 import deepinv as dinv
 import torch
 import yaml
@@ -57,7 +57,7 @@ def get_measurement_sample(
         # centered k-space data, shape: (B, 2, H, W) dtype: float32
         y_centered = image_to_kspace(x)
         # k-space data, shape: (B, 2, H, W) dtype: float32
-        y = oasis_kspace_to_fastmri_measurement(y_centered, device=run_device)
+        y = oasis_kspace_to_fastmri_measurement(y_centered)
     elif dataset_name == "fastmri_knee":
         # reference image, shape: (B, 1, H/2, H/2) dtype: float32
         x = sample_batch[0].to(run_device)
@@ -124,7 +124,7 @@ def get_measurement_sample(
         # create oasis-like k-space data from image:
         y_centered = image_to_kspace(x)
         print(f"\t[Debug] Centered k-space shape: {y_centered.shape}, type: {y_centered.dtype}")
-        y = oasis_kspace_to_fastmri_measurement(y_centered, device=run_device)
+        y = oasis_kspace_to_fastmri_measurement(y_centered)
 
     print(f"\tk-space shape {y.shape}[{y.dtype}] and reference image shape: {x.shape}[{x.dtype}]")
     if coil_maps is not None:
@@ -225,11 +225,11 @@ if __name__ == "__main__":
                 )
 
                 for reconstructor_name in config["reconstruction_algorithms"]:
-                    print(f"\t\t{reconstructor_name} ...")
-                    if compatible_dataset_with_reconstructor(dataset_name, reconstructor_name):
-
-                        # only run on reconstructors, that use the fastmri-like k-space
-                        if not uses_oasis_centered_path(dataset_name, reconstructor_name):
+                    # only run on reconstructors, that use the fastmri-like k-space
+                    if not uses_oasis_centered_path(dataset_name, reconstructor_name):
+                        print(f"\t\t{reconstructor_name} ...")
+                        start = datetime.now()
+                        if compatible_dataset_with_reconstructor(dataset_name, reconstructor_name):                        
 
                             reconstructor = choose_reconstructor(
                                 reconstructor_name,
@@ -265,7 +265,7 @@ if __name__ == "__main__":
                                     x_uncorrected = physics_clean.crop(x_uncorrected, shape=x_reference.shape[-2:])
 
                                 if x_corrected.shape[-2:] != x_reference.shape[-2:]:
-                                    x_corrected_clean = physics_distorted.crop(x_corrected, shape=x_reference.shape[-2:])
+                                    x_corrected = physics_distorted.crop(x_corrected, shape=x_reference.shape[-2:])
 
                                 # save reconstructed images
                                 imwrite(
@@ -282,6 +282,7 @@ if __name__ == "__main__":
                                     ),
                                     convert_image_for_save(x_corrected),
                                 )
+                                print(f"\t\t... done in {start- datetime.now()}")
 
                             except Exception as e:
                                 print(
@@ -289,8 +290,8 @@ if __name__ == "__main__":
                                 )
 
                             
-                    else:
-                        print(f"\t\t ... not compatible with {dataset_name}")
+                        else:
+                            print(f"\t\t ... not compatible with {dataset_name}")
 
 
             # now proceed with oasis-centered fft path
@@ -313,11 +314,11 @@ if __name__ == "__main__":
                 )
 
                 for reconstructor_name in config["reconstruction_algorithms"]:
-                    print(f"\t\t{reconstructor_name} ...")
-                    if compatible_dataset_with_reconstructor(dataset_name, reconstructor_name):
-
-                        # skip all reconstructors, that don't use the oasis-centered path
-                        if uses_oasis_centered_path(dataset_name, reconstructor_name):
+                    
+                    # skip all reconstructors, that don't use the oasis-centered path
+                    if uses_oasis_centered_path(dataset_name, reconstructor_name):
+                        print(f"\t\t{reconstructor_name} ...")
+                        if compatible_dataset_with_reconstructor(dataset_name, reconstructor_name):
                             
                             reconstructor = choose_reconstructor(
                                 reconstructor_name,
@@ -351,7 +352,7 @@ if __name__ == "__main__":
                                     x_uncorrected = physics_clean.crop(x_uncorrected, shape=x_reference.shape[-2:])
 
                                 if x_corrected.shape[-2:] != x_reference.shape[-2:]:
-                                    x_corrected_clean = physics_distorted.crop(x_corrected, shape=x_reference.shape[-2:])
+                                    x_corrected = physics_distorted.crop(x_corrected, shape=x_reference.shape[-2:])
 
 
                                 # save reconstructed images
@@ -375,6 +376,6 @@ if __name__ == "__main__":
                                     f"\t\tError using {reconstructor_name} with distortion {distortion_name} on sample {i}: {e}"
                                 )
 
-                    else:
-                        print(f"\t\t ... not compatible with {dataset_name}")
+                        else:
+                            print(f"\t\t ... not compatible with {dataset_name}")
 

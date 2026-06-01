@@ -89,4 +89,4 @@ def convert_image_for_save(im: torch.Tensor) -> np.ndarray:
     """
     if torch.is_complex(im) or im.shape[1] == 2:
         im = dinv.utils.signals.complex_abs(im, dim=1, keepdim=False)
-    return im.numpy()
+    return im.detach().cpu().numpy()
