@@ -22,7 +22,6 @@ from mri_recon.distortions import (
     choose_distortion,
 )
 from mri_recon.reconstruction import (
-    ConjugateGradientReconstructor,
     choose_reconstructor,
     uses_oasis_centered_path,
     compatible_dataset_with_reconstructor,
@@ -31,7 +30,6 @@ from mri_recon.utils import (
     OasisCenteredFFTPhysics,
     OasisCenterSliceFolderDataset,
     FastMRIProstateDataset,
-    fastmri_measurement_to_image,
     fastmri_measurement_to_oasis_kspace,
     oasis_kspace_to_fastmri_measurement,
     image_to_kspace,
@@ -69,7 +67,6 @@ def get_measurement_sample(
         y_centered = fastmri_measurement_to_oasis_kspace(y, device=run_device)
         # reconstructed reference image:
         # shape: (B, 1, H, W) dtype: float32
-        print("stop for testing")
     elif dataset_name == "fastmri_brain":
         # reference image, shape: (B, 1, H/2, H/2) dtype: float32
         x = sample_batch[0].to(run_device)
