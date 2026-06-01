@@ -6,6 +6,8 @@ from pathlib import Path
 
 import matplotlib.pyplot as plt
 import torch
+import numpy as np
+import deepinv as dinv
 
 
 def _kspace_to_log_magnitude(kspace: torch.Tensor) -> torch.Tensor:
@@ -71,3 +73,20 @@ def save_kspace_plot(
         ax.axis("off")
     fig.savefig(save_fn, dpi=200, bbox_inches="tight")
     plt.close(fig)
+
+
+def convert_image_for_save(im: torch.Tensor) -> np.ndarray:
+    """
+    Convert a PyTorch tensor image complex tensor to a real-valued NumPy array 
+    by calculating the magnitude.
+    (B, 2, H, W)  or (B, H, W) with complex type -> (B, H, W)
+
+    Args:
+        im (torch.Tensor): The input image tensor.
+
+    Returns:
+        np.ndarray: The converted image array.
+    """
+    if torch.is_complex(im) or im.shape[1] == 2:
+        im = dinv.utils.signals.complex_abs(im, dim=1, keepdim=False)
+    return im.numpy()

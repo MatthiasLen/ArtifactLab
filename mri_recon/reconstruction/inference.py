@@ -43,31 +43,26 @@ def uses_oasis_centered_path(
     return algorithm in OASIS_UNET_ALGORITHMS
 
 
-def validate_algorithm_dataset_compatibility(dataset: str, algorithm: str) -> None:
-    """Raise a clear error when an explicit algorithm is incompatible with a dataset."""
+def compatible_dataset_with_reconstructor(dataset: str, reconstructor_name: str) -> bool:
+    """Check if dataset and trained reconstructor are compatible"""
 
-    if dataset == "oasis" and algorithm == FASTMRI_UNET_ALGORITHM:
-        raise ValueError(
-            "The algorithm 'unet-fastmri' is not supported on the OASIS dataset. "
-            "Use one of the explicit OASIS U-Net algorithms instead."
-        )
-    elif dataset == "fastmri" and algorithm in OASIS_UNET_ALGORITHMS:
-        raise ValueError(
-            "The algorithm 'unet-oasis' is not supported on the FastMRI dataset. "
-            "Use the 'unet-fastmri' algorithm instead."
-        )
-    elif dataset == "fastmri-multicoil" and algorithm == FASTMRI_UNET_ALGORITHM:
-        raise ValueError(
-            "The algorithm 'unet-fastmri' (knee) is not supported on the FastMRI multicoil (brain) dataset. "
-            "Use the 'unet-oasis' algorithm instead."
-        )
-    elif dataset in ["cmrxrecon", "prostate"] and algorithm in [FASTMRI_UNET_ALGORITHM] + list(
-        OASIS_UNET_ALGORITHMS.keys()
-    ):
-        raise ValueError(
-            f"The algorithm {algorithm} ({'heart' if dataset == 'cmrxrecon' else 'prostate'}) is not supported on the cmrxrecon or prostate datasets. "
-            "No trained unet model available for this dataset."
-        )
+    # fast mri u-net is only trained with knee data
+    if reconstructor_name == FASTMRI_UNET_ALGORITHM:
+        if (dataset == "fastmri_knee"):
+            return True
+        else:
+            return False
+
+    # oasis is only trained with brain data
+    elif reconstructor_name in OASIS_UNET_ALGORITHMS:
+        if dataset in ["fastmri_brain", "oasis"]:
+            return True
+        else:
+            return False
+    
+    # all other (classic) reconstructors work with any dataset:
+    else:
+        return True
 
 
 def choose_reconstructor(
@@ -75,7 +70,7 @@ def choose_reconstructor(
     img_size: tuple = (640, 368),
     device: torch.device | str = "cpu",
     verbose: bool = False,
-    dataset: str = "fastmri",
+    dataset: str | None = None,
 ) -> dinv.models.Reconstructor:
     """Create a reconstructor while enforcing the supported dataset/model matrix.
 
@@ -95,7 +90,8 @@ def choose_reconstructor(
         explicit algorithm names that are dataset-specific.
     """
 
-    validate_algorithm_dataset_compatibility(dataset, name)
+    if dataset is not None and not compatible_dataset_with_reconstructor(dataset, name):
+        raise ValueError(f"Reconstructor {name} is not compatible with dataset {dataset}, because it was trained with a different image domain.")
 
     match name:
         case "zero-filled":

@@ -180,8 +180,31 @@ class DistortedKspaceMultiCoilMRI(dinv.physics.MultiCoilMRI):
         return self.distortion(y)
 
     def A_adjoint(self, y: torch.Tensor) -> torch.Tensor:
+        
         if len(y.shape) == (5 if self.three_d else 4):
             y = y.unsqueeze(2)  # add coil dim if singlecoil
 
         y = self.distortion.A_adjoint(y)
+        
+        # # in order to match the reference image shape
+        # # a crop must be performed here on k-space data:
+        # if y.shape[-2:] != self.img_size[-2:]:
+        #     y =self.crop(y, crop=True)
+        
+        # # and on coil maps for multi-coil data:
+        # if self.coil_maps is not None and self.coil_maps.shape[2:] != self.img_size[1:]:
+        #     self.coil_maps = self.crop(self.coil_maps, crop=True)
         return super().A_adjoint(y)
+
+    # def A_dagger(self, y: torch.Tensor, **kwargs) -> torch.Tensor:
+        
+    #     # in order to match the reference image shape
+    #     # a crop must be performed here on k-space data:
+    #     if y.shape[-2:] != self.img_size[-2:]:
+    #         y =self.crop(y, crop=True)
+        
+    #     # and on coil maps for multi-coil data:
+    #     if self.coil_maps is not None and self.coil_maps.shape[2:] != self.img_size[1:]:
+    #         self.coil_maps = self.crop(self.coil_maps, crop=True)
+        
+    #     return super().A_dagger(y, coil_maps=self.coil_maps, **kwargs)

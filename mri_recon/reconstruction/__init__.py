@@ -10,7 +10,7 @@ from .inference import (
     OASIS_UNET_ALGORITHMS,
     choose_reconstructor,
     uses_oasis_centered_path,
-    validate_algorithm_dataset_compatibility,
+    compatible_dataset_with_reconstructor,
 )
 from .classic import (
     ZeroFilledReconstructor,

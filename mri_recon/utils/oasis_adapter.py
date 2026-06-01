@@ -296,7 +296,10 @@ def fastmri_measurement_to_oasis_kspace(
         Centered OASIS-convention k-space tensor with shape ``(B, 2, H, W)``.
     """
 
-    return image_to_kspace(fastmri_measurement_to_image(y, coil_maps=coil_maps, device=device))
+    result = image_to_kspace(fastmri_measurement_to_image(y, coil_maps=coil_maps, device=device))
+
+    
+    return result
 
 
 def image_to_fast_mri_measurement(
@@ -308,8 +311,8 @@ def image_to_fast_mri_measurement(
 
     Parameters
     ----------
-    y : torch.Tensor
-        OASIS k-space measurement tensor with shape ``(B, 2, H, W)``.
+    x : torch.Tensor
+        image tensor with shape ``(B, 2, H, W)``.
     coil_maps : torch.Tensor | None, optional
         Coil sensitivity maps with shape ``(B, C, H, W)``, where ``C`` is the number of coils.
     device : torch.device | str, optional
@@ -334,8 +337,6 @@ def image_to_fast_mri_measurement(
 
 def oasis_kspace_to_fastmri_measurement(
     y: torch.Tensor,
-    coil_maps: torch.Tensor | None = None,
-    device: torch.device | str | None = None,
 ) -> torch.Tensor:
     """Adapt OASIS-convention k-space to FastMRI measurement convention.
 
@@ -343,10 +344,7 @@ def oasis_kspace_to_fastmri_measurement(
     ----------
     y : torch.Tensor
         Centered OASIS-convention k-space tensor with shape ``(B, 2, H, W)``.
-    coil_maps : torch.Tensor | None, optional
-        Coil sensitivity maps with shape ``(B, C, H, W)``, where ``C`` is the number of coils.
-    device : torch.device | str, optional
-        Device on which to instantiate the temporary native physics operator.
+
 
     Returns
     -------
@@ -354,7 +352,7 @@ def oasis_kspace_to_fastmri_measurement(
         FastMRI-convention k-space tensor with shape ``(B, 2, H, W)``.
     """
 
-    return image_to_fast_mri_measurement(kspace_to_image(y), coil_maps=coil_maps, device=device)
+    return image_to_fast_mri_measurement(kspace_to_image(y))
 
 
 class OasisCenteredFFTPhysics(dinv.physics.LinearPhysics):

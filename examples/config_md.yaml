@@ -1,0 +1,46 @@
+data:
+  "fastmri_knee": "/home/melanie.dohmen/ArtifactLab/data/singlecoil_val"
+  "oasis": "/home/melanie.dohmen/ArtifactLab/data/oasis"
+  "fastmri_brain": "/home/melanie.dohmen/ArtifactLab/data/fastMRI_multicoil_brain_test"
+  "cmrxrecon": "/home/melanie.dohmen/ArtifactLab/data/CMRxRecon"
+  "fastmri_prostate": "/home/melanie.dohmen/ArtifactLab/data/fastMRI_prostate_T2_IDS_001_020"
+
+distortions:
+    #- "BaseDistortion"
+    #- "CartesianUndersamplingVariableDensity"
+    #- "Cartesian undersampling (uniform random)",
+    #- "Cartesian undersampling (uniform random, zero ACS)",
+    #- "Cartesian undersampling (equispaced)",
+    #- "CartesianUndersamplingEquispacedZeroACS"
+    #- "Partial Fourier",
+    #- "Phase-encode ghosting",
+    #- "Segmented translation motion",
+    # "Segmented rotational motion",
+    # "Translation motion",
+    # "Rotational motion",
+    # "Off-center anisotropic Gaussian bias field",
+    # "Gaussian bias field",
+    # "Anisotropic LP",
+    # "Hann taper LP",
+    # "Kaiser taper LP",
+    - "GaussianNoise"
+    # "Isotropic LP",
+    # "Radial high-pass emphasis",
+reconstruction_algorithms:
+    - "zero-filled"
+    - "conjugate-gradient"
+    #- "ram",
+    #- "dip",
+    #- "tv-pgd",
+    #- "wavelet-fista",
+    #- "tv-fista",
+    #- "tv-pdhg",
+    - "unet-fastmri"
+    - "unet-oasis-acceleration4"
+    #- "unet-oasis-acceleration8"
+    #- "unet-oasis-acceleration10"
+num_samples: 1
+keep_fraction: 0.25
+center_fraction: 0.125
+verbose: true
+results_dir: "/home/melanie.dohmen/ArtifactLab/reports/experiments_run1"

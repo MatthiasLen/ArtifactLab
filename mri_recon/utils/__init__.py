@@ -17,6 +17,7 @@ from .oasis_adapter import kspace_to_image as kspace_to_image
 from .prostate_adaptor import FastMRIProstateDataset as FastMRIProstateDataset
 from .plot import save_kspace_plot as save_kspace_plot
 from .plot import _kspace_to_log_magnitude as _kspace_to_log_magnitude
+from .plot import convert_image_for_save as convert_image_for_save
 
 __all__ = [
     "download_file_with_sha256",

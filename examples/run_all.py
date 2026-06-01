@@ -10,37 +10,22 @@ import sys
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-import numpy as np
-from pathlib import Path
+
 import deepinv as dinv
 import torch
+import yaml
 from tifffile import imwrite
 
 from mri_recon.distortions import (
-    AnisotropicResolutionReduction,
     BaseDistortion,
-    CartesianUndersampling,
     DistortedKspaceMultiCoilMRI,
-    GaussianKspaceBiasField,
-    GaussianNoiseDistortion,
-    HannTaperResolutionReduction,
-    IsotropicResolutionReduction,
-    KaiserTaperResolutionReduction,
-    OffCenterAnisotropicGaussianKspaceBiasField,
-    PartialFourierDistortion,
-    PhaseEncodeGhostingDistortion,
-    RadialHighPassEmphasisDistortion,
-    RotationalMotionDistortion,
-    SegmentedRotationalMotionDistortion,
-    SegmentedTranslationMotionDistortion,
-    TranslationMotionDistortion,
+    choose_distortion,
 )
 from mri_recon.reconstruction import (
     ConjugateGradientReconstructor,
     choose_reconstructor,
     uses_oasis_centered_path,
-    validate_algorithm_dataset_compatibility,
-    EXPLICIT_UNET_ALGORITHMS,
+    compatible_dataset_with_reconstructor,
 )
 from mri_recon.utils import (
     OasisCenteredFFTPhysics,
@@ -51,279 +36,9 @@ from mri_recon.utils import (
     oasis_kspace_to_fastmri_measurement,
     image_to_kspace,
     _kspace_to_log_magnitude,
+    convert_image_for_save,
 )
 
-EXPERIMENTS_DIR = Path("reports") / "experiments"
-
-ALGORITHMS = [
-    # "zero-filled",
-    "conjugate-gradient",
-    # "ram",
-    # "dip",
-    # "tv-pgd",
-    # "wavelet-fista",
-    # "tv-fista",
-    # "tv-pdhg",
-    *list(EXPLICIT_UNET_ALGORITHMS),
-]
-
-DISTORTIONS = [
-    "no distortion",
-    # "Cartesian undersampling (variable density)",
-    # "Cartesian undersampling (uniform random)",
-    # "Cartesian undersampling (uniform random, zero ACS)",
-    # "Cartesian undersampling (equispaced)",
-    "Cartesian undersampling (equispaced, zero ACS)",
-    # "Partial Fourier",
-    # "Phase-encode ghosting",
-    # "Segmented translation motion",
-    # "Segmented rotational motion",
-    # "Translation motion",
-    # "Rotational motion",
-    # "Off-center anisotropic Gaussian bias field",
-    # "Gaussian bias field",
-    # "Anisotropic LP",
-    # "Hann taper LP",
-    # "Kaiser taper LP",
-    # "Gaussian noise",
-    # "Isotropic LP",
-    # "Radial high-pass emphasis",
-]
-METRICS = [
-    "PSNR",
-    # "NMSE",
-    # "SSIM",
-    # "HaarPSI",
-    # "SharpnessIndex",
-    # "BlurStrength",
-]
-
-DATASETS = {
-    # "fastmri": "/home/melanie.dohmen/mri_recon/data/fastmri/singlecoil_val",
-    "oasis": "/home/melanie.dohmen/mri_recon/data/oasis",
-    # "fastmri_multicoil": "/home/melanie.dohmen/mri_recon/data/fastmri/multicoil_train",
-    "cmrxrecon": "/home/melanie.dohmen/mri_recon/data/CMRxRecon/CMRxRecon/",  # SingleCoil/Cine/TrainingSet/FullSample",
-    "prostate": "/home/melanie.dohmen/mri_recon/data/fastmri/fastMRI_prostate_T2_IDS_001_020",
-}
-
-
-def convert_image_for_save(im: torch.Tensor) -> np.ndarray:
-    """
-    Convert a PyTorch tensor image complex tensor to a real-valued NumPy array suitable
-    by calculating the magnitude.
-    (B, 2, H, W)  or (B, H, W) with complex type -> (B, H, W)
-
-    Args:
-        im (torch.Tensor): The input image tensor.
-
-    Returns:
-        np.ndarray: The converted image array.
-    """
-    if torch.is_complex(im) or im.shape[1] == 2:
-        im = dinv.utils.signals.complex_abs(im, dim=1, keepdim=False)
-    return im.numpy()
-
-
-def choose_distortion(
-    name: str,
-    keep_fraction: float = 0.25,
-    center_fraction: float = 0.125,
-    cartesian_axis: int = -2,
-) -> BaseDistortion:
-    """Build one distortion operator for the inference comparison script.
-
-    The ``cartesian_axis`` is supplied by the active measurement convention:
-    FastMRI-native runs use the repository's existing axis, while OASIS-native
-    and FastMRI-to-OASIS runs use the centered OASIS axis.
-    """
-
-    match name:
-        case "Phase-encode ghosting":
-            return PhaseEncodeGhostingDistortion(
-                line_period=2,
-                line_offset=1,
-                phase_error_radians=torch.pi / 2,
-                corrupted_line_scale=1.0,
-            )
-        case "Cartesian undersampling (variable density)":
-            return CartesianUndersampling(
-                keep_fraction=keep_fraction,
-                center_fraction=center_fraction,
-                pattern="variable_density_random",
-                axis=cartesian_axis,
-                seed=42,
-            )
-        case "Cartesian undersampling (uniform random)":
-            return CartesianUndersampling(
-                keep_fraction=keep_fraction,
-                center_fraction=center_fraction,
-                pattern="uniform_random",
-                axis=cartesian_axis,
-                seed=42,
-            )
-        case "Cartesian undersampling (uniform random, zero ACS)":
-            return CartesianUndersampling(
-                keep_fraction=keep_fraction,
-                center_fraction=0.0,
-                pattern="uniform_random",
-                axis=cartesian_axis,
-                seed=42,
-            )
-        case "Cartesian undersampling (equispaced)":
-            return CartesianUndersampling(
-                keep_fraction=keep_fraction,
-                center_fraction=center_fraction,
-                pattern="equispaced",
-                axis=cartesian_axis,
-                seed=42,
-            )
-        case "Cartesian undersampling (equispaced, zero ACS)":
-            return CartesianUndersampling(
-                keep_fraction=keep_fraction,
-                center_fraction=0.0,
-                pattern="equispaced",
-                axis=cartesian_axis,
-                seed=42,
-            )
-        case "Partial Fourier":
-            return PartialFourierDistortion(
-                partial_fraction=0.7,
-                center_fraction=center_fraction,
-                axis=cartesian_axis,
-                side="high",
-            )
-        case "Anisotropic LP":
-            return AnisotropicResolutionReduction(
-                kx_radius_fraction=1.0,
-                ky_radius_fraction=0.25,
-            )
-        case "Hann taper LP":
-            return HannTaperResolutionReduction(
-                radius_fraction=0.35,
-                transition_fraction=0.4,
-            )
-        case "Kaiser taper LP":
-            return KaiserTaperResolutionReduction(
-                radius_fraction=0.35,
-                transition_fraction=0.4,
-                beta=8.6,
-            )
-        case "Radial high-pass emphasis":
-            return RadialHighPassEmphasisDistortion(alpha=0.4)
-        case "Isotropic LP":
-            return IsotropicResolutionReduction(radius_fraction=0.1)
-        case "Off-center anisotropic Gaussian bias field":
-            return OffCenterAnisotropicGaussianKspaceBiasField(
-                width_x_fraction=0.2,
-                width_y_fraction=0.35,
-                center_x_fraction=0.15,
-                center_y_fraction=-0.1,
-                edge_gain=0.3,
-            )
-        case "Translation motion":
-            return TranslationMotionDistortion(shift_x_pixels=60, shift_y_pixels=10)
-        case "Rotational motion":
-            return RotationalMotionDistortion(angle_radians=torch.pi / 6)
-        case "Segmented rotational motion":
-            return SegmentedRotationalMotionDistortion(
-                angle_radians=(0.0, torch.pi / 20, -torch.pi / 24, torch.pi / 16),
-            )
-        case "Segmented translation motion":
-            return SegmentedTranslationMotionDistortion(
-                shift_x_pixels=(0.0, 20.0, 50.0, -50.0),
-                shift_y_pixels=(0.0, 10.0, -20.0, 20.0),
-            )
-        case "Gaussian bias field":
-            return GaussianKspaceBiasField(width_fraction=0.35, edge_gain=0.4)
-        case "Gaussian noise":
-            return GaussianNoiseDistortion(sigma=0.00001)
-        case "no distortion":
-            return BaseDistortion()
-        case _:
-            raise ValueError(f"Unknown distortion {name!r}")
-
-
-def choose_metric(name: str) -> dinv.metric.Metric:
-    """Build one evaluation metric used in the saved comparison plots."""
-
-    match name:
-        case "PSNR":
-            return dinv.metric.PSNR(max_pixel=None, complex_abs=True)
-        case "NMSE":
-            return dinv.metric.NMSE(complex_abs=True)
-        case "SSIM":
-            return dinv.metric.SSIM(max_pixel=None, complex_abs=True)
-        case "HaarPSI":
-            return dinv.metric.HaarPSI(norm_inputs="min_max", complex_abs=True)
-        case "BlurStrength":
-            return dinv.metric.BlurStrength(complex_abs=True)
-        case "SharpnessIndex":
-            return dinv.metric.SharpnessIndex(complex_abs=True)
-
-
-# def prepare_measurement_sample(
-#     sample_batch: object,
-#     dataset_name: str,
-#     use_oasis_fft_path: bool,
-#     run_device: torch.device | str,
-# ) -> tuple[torch.Tensor | None, torch.Tensor]:
-#     """Prepare one input measurement and its clean image reference.
-
-#     FastMRI samples are loaded as native measurements. When the OASIS U-Net is
-#     selected on FastMRI data, the helper converts those measurements into the
-#     centered OASIS k-space convention while preserving the native adjoint image
-#     as the clean reference.
-#     """
-
-#     if dataset_name == "oasis":
-#         x = sample_batch["x"].to(run_device)
-#         y = image_to_kspace(x)
-#         coil_maps = None
-#     elif dataset_name in ("fastmri",) and use_oasis_fft_path:
-#         y = sample_batch[1].to(run_device)
-#         x = fastmri_measurement_to_image(y)
-#         y = fastmri_measurement_to_oasis_kspace(y, device=run_device)
-#         coil_maps = None
-#     elif dataset_name == "fastmri_multicoil" and use_oasis_fft_path:
-#         y = sample_batch[1].to(run_device)
-
-#         coil_maps = (
-#             sample_batch[2]["coil_maps"].to(run_device)
-#             if isinstance(sample_batch, (tuple, list))
-#             and len(sample_batch) == 3
-#             and "coil_maps" in sample_batch[2]
-#             else None
-#         )
-#         x = fastmri_measurement_to_image(y, coil_maps=coil_maps)
-#         y = fastmri_measurement_to_oasis_kspace(y, coil_maps=coil_maps, device=run_device)
-#     elif dataset_name in ("fastmri", "fastmri_multicoil"):
-#         x = None
-#         y = sample_batch[1].to(run_device)
-#         coil_maps = (
-#             sample_batch[2]["coil_maps"].to(run_device)
-#             if isinstance(sample_batch, (tuple, list))
-#             and len(sample_batch) == 3
-#             and "coil_maps" in sample_batch[2]
-#             else None
-#         )
-#     elif dataset_name in ("cmrxrecon"):
-#         x = sample_batch[0].to(run_device)
-#         y = sample_batch[1].to(run_device)
-#         coil_maps = (
-#             sample_batch[2]["coil_maps"].to(run_device)
-#             if isinstance(sample_batch, (tuple, list))
-#             and len(sample_batch) == 3
-#             and "coil_maps" in sample_batch[2]
-#             else None
-#         )
-#     elif dataset_name in ("prostate"):
-#         x = sample_batch[0].to(run_device)
-#         y = sample_batch[1].to(run_device)
-#         coil_maps = None
-
-#     print(f"\t[Prepared measurement] k-space shape {y.shape} and reference image shape: {x.shape if x is not None else None}")
-
-#     return x, y, coil_maps
 
 
 def get_measurement_sample(
@@ -333,24 +48,34 @@ def get_measurement_sample(
 ) -> tuple[torch.Tensor | None, torch.Tensor]:
     """Prepare one input measurement and its clean image reference.
 
-    FastMRI samples are loaded as native measurements. When the OASIS U-Net is
-    selected on FastMRI data, the helper converts those measurements into the
-    centered OASIS k-space convention while preserving the native adjoint image
-    as the clean reference.
+    Always prepare a (fast-MRI-like) non-centered k-space measurement
+    as well as a (oasis-like) centered k-space version of the measurement
+    and a reference reconstruction in the image domain. 
     """
     coil_maps = None
     if dataset_name == "oasis":
+        # reference image, shape: (B, 2, H, W) dtype: float32
         x = sample_batch["x"].to(run_device)
-        print(f"\t[Debug] Reference image shape: {x.shape}, dtype: {x.dtype}")
+        # centered k-space data, shape: (B, 2, H, W) dtype: float32
         y_centered = image_to_kspace(x)
-        print(f"\t[Debug] Centered k-space shape: {y_centered.shape}, dtype: {y_centered.dtype}")
+        # k-space data, shape: (B, 2, H, W) dtype: float32
         y = oasis_kspace_to_fastmri_measurement(y_centered, device=run_device)
-    elif dataset_name in ("fastmri"):
+    elif dataset_name == "fastmri_knee":
+        # reference image, shape: (B, 1, H/2, H/2) dtype: float32
+        x = sample_batch[0].to(run_device)
+        # kspace data, shape: (B, 2, H, W) dtype: float32
         y = sample_batch[1].to(run_device)
+        # centered k-space data, shape: (B, 2, H, W) dtype: float32
         y_centered = fastmri_measurement_to_oasis_kspace(y, device=run_device)
-        x = fastmri_measurement_to_image(y, rss=True)
-    elif dataset_name in ("fastmri_multicoil"):
+        # reconstructed reference image:
+        # shape: (B, 1, H, W) dtype: float32
+        print("stop for testing")
+    elif dataset_name == "fastmri_brain":
+        # reference image, shape: (B, 1, H/2, H/2) dtype: float32
+        x = sample_batch[0].to(run_device)
+        # kspace data, shape: (B, 2, num_coils, H, W) dtype: float32
         y = sample_batch[1].to(run_device)
+        # coil maps, shape: (B, num_coils, H, W) dtype: complex64
         coil_maps = (
             sample_batch[2]["coil_maps"].to(run_device)
             if isinstance(sample_batch, (tuple, list))
@@ -358,15 +83,19 @@ def get_measurement_sample(
             and "coil_maps" in sample_batch[2]
             else None
         )
-        x = fastmri_measurement_to_image(y, coil_maps=coil_maps, rss=True)
+        # centered k-space data, shape: (B, 2, H, W) dtype: float32
         y_centered = fastmri_measurement_to_oasis_kspace(y, coil_maps=coil_maps, device=run_device)
-    elif dataset_name in ("cmrxrecon"):
-        # ignore multi-coil reference image data
+        
+    elif dataset_name == "cmrxrecon":
+        # reference image, shape: (B, 2, n_timepoints, (n_coils), H, W)
         x = sample_batch[0].to(run_device)
         print(f"\t[Debug] Reference image shape: {x.shape}, dtype: {x.dtype}")
-
+        # k-space data, shape: (B, 2, n_timepoints, (n_coils), H, W) dtype: float32
         y = sample_batch[1].to(run_device)
+        print(f"\t[Debug] k-space shape: {y.shape}, dtype: {y.dtype}")
 
+        # not available for all samples, either None or 
+        # shape (1, num_coils, H, W)
         coil_maps = (
             sample_batch[2]["coil_maps"].to(run_device)
             if isinstance(sample_batch, (tuple, list))
@@ -374,112 +103,66 @@ def get_measurement_sample(
             and "coil_maps" in sample_batch[2]
             else None
         )
+        print(f"\t[Debug] Coil maps shape: {coil_maps.shape if coil_maps is not None else None}, dtype: {coil_maps.dtype if coil_maps is not None else None}")
+        # centered k-space data, shape: (B, 2, H, W) dtype: float32
         y_centered = fastmri_measurement_to_oasis_kspace(y, coil_maps=coil_maps, device=run_device)
+        print(f"\t[Debug] Centered k-space shape: {y_centered.shape}, dtype: {y_centered.dtype}")
         # reconstruct coil-combined image reference from multi-coil k-space data using
         # integrated espirit sensitivity map estimation, RSS coil combination
-        x = fastmri_measurement_to_image(y, coil_maps=coil_maps, rss=True)
-
-    elif dataset_name in ("prostate"):
-        # has shape: (B, num_averages, coils, H, W) with dtype= complex128-> take first average and convert to image space reference
+        
+        #x = fastmri_measurement_to_image(y, coil_maps=coil_maps, rss=True)
+        #print(f"\t[Debug] Reference image shape: {x.shape}, dtype: {x.dtype}")
+    elif dataset_name == "fastmri_prostate":
+        # reference image, shape: (slices, W, H): dtype float32
         x = sample_batch[0].to(run_device)
         print(f"\t[Debug] Reference image shape: {x.shape}, type: {x.dtype}")
-        # take mean of average images:
-        x = x.mean(dim=1)
-        print(f"\t[Debug] Mean of averages image shape: {x.shape}, type: {x.dtype}")
 
-        # convert to channel representation of complex numbers
-        # (B, H, W) with complex dtype -> (B, H, W, 2) with real dtype
-        x = torch.view_as_real(x) if torch.is_complex(x) else x
-        print(f"\t[Debug] after view_as_real (if complex) shape: {x.shape}, type: {x.dtype}")
+        # add zero imaginary channel:
+        # (B, slices, H, W) -> (B, 2, slices, H, W)
+        x = torch.stack([x, torch.zeros_like(x)], dim=1)
+        
 
-        # move channel with real and imaginary parts to channel dimension
-        # (B, H, W, 2) -> (B, 2, H, W)
-        x = x.moveaxis(-1, 1)
-        print(f"\t[Debug] after moving channels: {x.shape}, type: {x.dtype}")
-
-        # ignore k-space data:
-        y = sample_batch[1].to(run_device)
-        print(f"\t[Debug] Original k-space shape: {y.shape}, type: {y.dtype}")
+        
         # y_centered = fastmri_measurement_to_oasis_kspace(y, coil_maps=coil_maps, device=run_device)
         # create oasis-like k-space data from image:
         y_centered = image_to_kspace(x)
         print(f"\t[Debug] Centered k-space shape: {y_centered.shape}, type: {y_centered.dtype}")
         y = oasis_kspace_to_fastmri_measurement(y_centered, device=run_device)
 
-    print(f"\tk-space shape {y.shape} and reference image shape: {x.shape}")
+    print(f"\tk-space shape {y.shape}[{y.dtype}] and reference image shape: {x.shape}[{x.dtype}]")
+    if coil_maps is not None:
+        print(f"\tcoil maps shape: {coil_maps.shape}[{coil_maps.dtype}]")
 
     return x, y, y_centered, coil_maps
 
 
 if __name__ == "__main__":
-    # parser = argparse.ArgumentParser(description=__doc__)
+    
+    # read config file in yaml format as first argument from commmand line
+    if len(sys.argv) < 2:
+        print("Usage: python examples/run_all.py <config_file.yaml>")
+        sys.exit(1)
 
-    # # data related arguments
-    # parser.add_argument(
-    #     "--source",
-    #     type=Path,
-    #     help="Local FastMRI directory with raw k-space .h5 files or OASIS root directory.",
-    # )
-    # parser.add_argument(
-    #     "--dataset",
-    #     choices=("fastmri", "oasis", "fastmri_multicoil", "cmrxrecon"),
-    #     default="fastmri",
-    # )
+    with open(sys.argv[1], "r") as f:
+        config = yaml.safe_load(f)
 
-    # parser.add_argument("--distortion", type=str, default="", choices=DISTORTIONS)
-    # parser.add_argument(
-    #     "--keep_fraction",
-    #     type=float,
-    #     default=0.25,
-    #     help="Fraction of k-space lines to keep for undersampling distortions.",
-    # )
-    # parser.add_argument(
-    #     "--center_fraction",
-    #     type=float,
-    #     default=0.125,
-    #     help="Fraction of low-frequency k-space lines to keep fully for undersampling distortions.",
-    # )
+    os.makedirs(config["results_dir"], exist_ok=True)
 
-    # # algo related arguments
-    # parser.add_argument(
-    #     "--algorithm",
-    #     type=str,
-    #     default="",
-    #     choices=ALGORITHMS,
-    #     help="Reconstruction algorithm applied to undistorted and distorted k-space.",
-    # )
-    # # inference related arguments
-    # parser.add_argument("--num_samples", type=int, default=1, help="How many samples to process.")
-    # parser.add_argument(
-    #     "--verbose",
-    #     action="store_true",
-    #     help="Enable verbose output for reconstructors that support it.",
-    # )
-    # args = parser.parse_args()
-    num_samples = 1
-    keep_fraction = 0.25
-    center_fraction = 0.125
-    verbose = True
-
-    os.makedirs(EXPERIMENTS_DIR, exist_ok=True)
-
-    # set up device, dataset, metrics
+    # set up device
     device = dinv.utils.get_device()
 
-    for dataset_name, dataset_rootdir in DATASETS.items():
+    for dataset_name, dataset_rootdir in config["data"].items():
+        
         print(f"=== {dataset_name} ===")
 
-        selected_algorithms = ALGORITHMS
-        selected_distortions = DISTORTIONS
-
+        # initialize dataset
         if dataset_name == "oasis":
-            # split_csv = OASISSinglecoilUnetReconstructor.resolve_default_split_csv()
             dataset = OasisCenterSliceFolderDataset(
                 data_path=dataset_rootdir,
             )
-        elif dataset_name == "fastmri":
+        elif dataset_name == "fastmri_knee":
             dataset = dinv.datasets.FastMRISliceDataset(str(dataset_rootdir), slice_index="middle")
-        elif dataset_name == "fastmri_multicoil":
+        elif dataset_name == "fastmri_brain":
             dataset = dinv.datasets.FastMRISliceDataset(
                 str(dataset_rootdir),
                 slice_index="middle",
@@ -494,15 +177,16 @@ if __name__ == "__main__":
                 data_dir="SingleCoil/Cine/TrainingSet/FullSample",
                 apply_mask=False,
             )
-        elif dataset_name == "prostate":
-            dataset = FastMRIProstateDataset(data_path=dataset_rootdir, num_samples=num_samples)
+        elif dataset_name == "fastmri_prostate":
+            dataset = FastMRIProstateDataset(data_path=dataset_rootdir, num_samples=config["num_samples"], slice_index="middle")
         else:
             raise NotImplementedError(f"Invalid dataset: {dataset_name}")
-        metrics = [choose_metric(m) for m in METRICS]
 
+        # loop through samples of dataset
         for i, batch in enumerate(iter(torch.utils.data.DataLoader(dataset))):
+
             # exit loop if we have processed the specified number of samples
-            if i >= num_samples:
+            if i >= config["num_samples"]:
                 break
 
             print(f"{dataset_name} sample {i}...")
@@ -512,173 +196,188 @@ if __name__ == "__main__":
                 run_device=device,
             )
 
-            physics_clean_oasis_fft_path = OasisCenteredFFTPhysics(BaseDistortion())
-            physics_clean_fastmri_path = DistortedKspaceMultiCoilMRI(
-                BaseDistortion(), img_size=x_reference.shape, coil_maps=coil_maps, device=device
-            )
-
-            x_clean_oasis_fft_path = ConjugateGradientReconstructor()(
-                y, physics_clean_oasis_fft_path
-            )
-            x_clean_fastmri_path = ConjugateGradientReconstructor()(y, physics_clean_fastmri_path)
-
-            # reference reconstructions:
+            # save reference image
             imwrite(
-                os.path.join(
-                    EXPERIMENTS_DIR, f"image_{dataset_name}_sample_{i}_CG_oasis_fft_path.tiff"
-                ),
-                convert_image_for_save(x_clean_oasis_fft_path),
-            )
-            imwrite(
-                os.path.join(
-                    EXPERIMENTS_DIR, f"image_{dataset_name}_sample_{i}_CG_fastmri_path.tiff"
-                ),
-                convert_image_for_save(x_clean_fastmri_path),
-            )
-            imwrite(
-                os.path.join(EXPERIMENTS_DIR, f"image_{dataset_name}_sample_{i}_reference.tiff"),
+                os.path.join(config["results_dir"], f"image_{dataset_name}_sample_{i}_reference.tiff"),
                 convert_image_for_save(x_reference),
             )
 
-            for distortion_name in selected_distortions:
+            # use fast-mri type samples first, later proceed with oasis-centered fft path
+            physics_clean = DistortedKspaceMultiCoilMRI(
+                BaseDistortion(), img_size=y.shape[-2:], coil_maps=coil_maps, device=device
+            )
+            
+            # reference from dataset:
+            for distortion_name in config["distortions"]:
                 print(f"\t{distortion_name} ...")
-                distortion_oasis_fft_path = choose_distortion(
-                    distortion_name,
-                    keep_fraction=keep_fraction,
-                    center_fraction=center_fraction,
-                    cartesian_axis=-1,
-                )
 
-                distortion_fastmri_path = choose_distortion(
+                distortion = choose_distortion(
                     distortion_name,
-                    keep_fraction=keep_fraction,
-                    center_fraction=center_fraction,
+                    keep_fraction=config["keep_fraction"],
+                    center_fraction=config["center_fraction"],
                     cartesian_axis=-2,
                 )
 
-                y_distorted_oasis_fft_path = distortion_oasis_fft_path.A(y_centered)
-                y_distorted_fastmri_path = distortion_fastmri_path.A(y)
+                y_distorted = distortion.A(y)
 
-                physics_distorted_oasis_fft_path = OasisCenteredFFTPhysics(
-                    distortion_oasis_fft_path
-                )
-                physics_distorted_fastmri_path = DistortedKspaceMultiCoilMRI(
-                    distortion_fastmri_path,
-                    img_size=x_reference.shape,
+                physics_distorted = DistortedKspaceMultiCoilMRI(
+                    distortion,
+                    img_size=y.shape[-2:],
                     coil_maps=coil_maps,
                     device=device,
                 )
 
-                for algo_name in selected_algorithms:
-                    print(f"\t\t{algo_name} ...")
-                    try:
-                        validate_algorithm_dataset_compatibility(dataset_name, algo_name)
+                for reconstructor_name in config["reconstruction_algorithms"]:
+                    print(f"\t\t{reconstructor_name} ...")
+                    if compatible_dataset_with_reconstructor(dataset_name, reconstructor_name):
 
-                        use_oasis_path = uses_oasis_centered_path(dataset_name, algo_name)
-                        if use_oasis_path:
-                            y_distorted = y_distorted_oasis_fft_path
-                            physics_clean = physics_clean_oasis_fft_path
-                            physics_distorted = physics_distorted_oasis_fft_path
-                            x_clean = x_reference
-                        else:
-                            y_distorted = y_distorted_fastmri_path
-                            physics_clean = physics_clean_fastmri_path
-                            physics_distorted = physics_distorted_fastmri_path
+                        # only run on reconstructors, that use the fastmri-like k-space
+                        if not uses_oasis_centered_path(dataset_name, reconstructor_name):
 
-                        algo = choose_reconstructor(
-                            algo_name,
-                            img_size=y_distorted.shape[-2:],
-                            device=device,
-                            verbose=verbose,
-                            dataset=dataset_name,
-                        ).to(device)
+                            reconstructor = choose_reconstructor(
+                                reconstructor_name,
+                                img_size=y_distorted.shape[-2:],
+                                device=device,
+                                verbose=config["verbose"],
+                            ).to(device)
 
-                        # save reference and distorted k-space for debugging and visualization purposes
-                        imwrite(
-                            os.path.join(
-                                EXPERIMENTS_DIR, f"kspace_{dataset_name}_sample_{i}_reference.tiff"
-                            ),
-                            _kspace_to_log_magnitude(y).numpy(),
-                        )
-                        imwrite(
-                            os.path.join(
-                                EXPERIMENTS_DIR,
-                                f"kspace_{dataset_name}_sample_{i}_{distortion_name}.tiff",
-                            ),
-                            _kspace_to_log_magnitude(y_distorted).numpy(),
-                        )
+                            # save reference and distorted k-space for debugging purposes
+                            imwrite(
+                                os.path.join(
+                                    config["results_dir"], f"kspace_{dataset_name}_sample_{i}_reference.tiff"
+                                ),
+                                _kspace_to_log_magnitude(y).numpy(),
+                            )
+                            imwrite(
+                                os.path.join(
+                                    config["results_dir"],
+                                    f"kspace_{dataset_name}_sample_{i}_{distortion_name}.tiff",
+                                ),
+                                _kspace_to_log_magnitude(y_distorted).numpy(),
+                            )
 
-                        # actual reconstruction with the algo being evaluated
-                        try:
-                            if dataset_name == "prostate":
-                                # prostate dataset has multiple k-space averages,
-                                # so we reconstruct each average separately and then average in the image domain
-                                x_corrected_averages = []
-                                x_uncorrected_averages = []
-                                for average in range(y_distorted.shape[0]):
-                                    x_uncorrected_averages.append(
-                                        algo(y_distorted[average], physics_clean)
-                                    )
-                                    x_corrected_averages.append(
-                                        algo(y_distorted[average], physics_distorted)
-                                    )
+                            # actual reconstruction with the selected reconstructor
+                            try:
+                                
+                                x_uncorrected = reconstructor(y_distorted, physics_clean)
+                                x_corrected = reconstructor(y_distorted, physics_distorted)
 
-                                x_uncorrected = torch.stack(x_uncorrected_averages, dim=0).mean(
-                                    dim=0
+
+                                # crop recostructed image to reference image size:
+                                if x_uncorrected.shape[-2:] != x_reference.shape[-2:]:
+                                    x_uncorrected = physics_clean.crop(x_uncorrected, shape=x_reference.shape[-2:])
+
+                                if x_corrected.shape[-2:] != x_reference.shape[-2:]:
+                                    x_corrected_clean = physics_distorted.crop(x_corrected, shape=x_reference.shape[-2:])
+
+                                # save reconstructed images
+                                imwrite(
+                                    os.path.join(
+                                        config["results_dir"],
+                                        f"image_{dataset_name}_sample_{i}_{distortion_name}_{reconstructor_name}_uncorrected.tiff",
+                                    ),
+                                    convert_image_for_save(x_uncorrected),
                                 )
-                                x_corrected = torch.stack(x_corrected_averages, dim=0).mean(dim=0)
+                                imwrite(
+                                    os.path.join(
+                                        config["results_dir"],
+                                        f"image_{dataset_name}_sample_{i}_{distortion_name}_{reconstructor_name}_corrected.tiff",
+                                    ),
+                                    convert_image_for_save(x_corrected),
+                                )
 
-                            else:
-                                x_uncorrected = algo(y_distorted, physics_clean)
-                                x_corrected = algo(y_distorted, physics_distorted)
+                            except Exception as e:
+                                print(
+                                    f"Error using {reconstructor_name}: {e}"
+                                )
 
-                            # performed reconstruction images
+                            
+                    else:
+                        print(f"\t\t ... not compatible with {dataset_name}")
+
+
+            # now proceed with oasis-centered fft path
+            physics_clean = OasisCenteredFFTPhysics(BaseDistortion())
+
+            for distortion_name in config["distortions"]:
+                print(f"\t{distortion_name} ...")
+                distortion = choose_distortion(
+                    distortion_name,
+                    keep_fraction=config["keep_fraction"],
+                    center_fraction=config["center_fraction"],
+                    cartesian_axis=-1,
+                )
+
+
+                y_distorted = torch.fft.fftshift(distortion.A(torch.fft.fftshift(y_centered, dim=(-1, -2))), dim=(-2, -1))
+
+                physics_distorted = OasisCenteredFFTPhysics(
+                    distortion
+                )
+
+                for reconstructor_name in config["reconstruction_algorithms"]:
+                    print(f"\t\t{reconstructor_name} ...")
+                    if compatible_dataset_with_reconstructor(dataset_name, reconstructor_name):
+
+                        # skip all reconstructors, that don't use the oasis-centered path
+                        if uses_oasis_centered_path(dataset_name, reconstructor_name):
+                            
+                            reconstructor = choose_reconstructor(
+                                reconstructor_name,
+                                img_size=y_distorted.shape[-2:],
+                                device=device,
+                                verbose=config["verbose"],
+                            ).to(device)
+
+                            # save reference and distorted k-space for debugging purposes
                             imwrite(
                                 os.path.join(
-                                    EXPERIMENTS_DIR,
-                                    f"image_{dataset_name}_sample_{i}_{distortion_name}_{algo_name}_uncorrected.tiff",
+                                    config["results_dir"], f"kspace_centered_{dataset_name}_sample_{i}_reference.tiff"
                                 ),
-                                convert_image_for_save(x_uncorrected),
+                                _kspace_to_log_magnitude(y_centered).numpy(),
                             )
                             imwrite(
                                 os.path.join(
-                                    EXPERIMENTS_DIR,
-                                    f"image_{dataset_name}_sample_{i}_{distortion_name}_{algo_name}_corrected.tiff",
+                                    config["results_dir"],
+                                    f"kspace_centered_{dataset_name}_sample_{i}_{distortion_name}.tiff",
                                 ),
-                                convert_image_for_save(x_corrected),
+                                _kspace_to_log_magnitude(y_distorted).numpy(),
                             )
 
-                        except Exception as e:
-                            print(
-                                f"Error reconstructing algo {algo_name} with distortion {distortion_name} on sample {i}: {e}"
-                            )
+                            # actual reconstruction with the algo being evaluated
+                            try:
+                                
+                                x_uncorrected = reconstructor(y_distorted, physics_clean)
+                                x_corrected = reconstructor(y_distorted, physics_distorted)
 
-                        # dinv.utils.plot(
-                        #     {
-                        #         "Undistorted ksp, CG recon": x_clean,
-                        #         "Distorted ksp, CG recon": x_distorted,
-                        #         f"Distorted ksp, {algo_name} recon, uncorrected": x_uncorrected,
-                        #         f"Distorted ksp, {algo_name} recon, corrected": x_corrected,
-                        #     },
-                        #     subtitles=[
-                        #         "",
-                        #         "",
-                        #         "\n".join(
-                        #             f"{m.__class__.__name__} {m(x_uncorrected, x_clean).item():.2f}"
-                        #             for m in metrics
-                        #         ),
-                        #         "\n".join(
-                        #             f"{m.__class__.__name__} {m(x_corrected, x_clean).item():.2f}"
-                        #             for m in metrics
-                        #         ),
-                        #     ],
-                        #     show=False,
-                        #     close=True,
-                        #     suptitle=f"Algo {algo_name}, distortion {distortion_name}, Sample {i}",
-                        #     save_fn=REPORT_DIR / f"ALGO_{algo_name}_{distortion_name}_sample_{i}.png",
-                        #     fontsize=3,
-                        # )
-                    except Exception as e:
-                        print(
-                            f"\t\tError processing algo {algo_name}, distortion {distortion_name}, sample {i}: {e}"
-                        )
+                                if x_uncorrected.shape[-2:] != x_reference.shape[-2:]:
+                                    x_uncorrected = physics_clean.crop(x_uncorrected, shape=x_reference.shape[-2:])
+
+                                if x_corrected.shape[-2:] != x_reference.shape[-2:]:
+                                    x_corrected_clean = physics_distorted.crop(x_corrected, shape=x_reference.shape[-2:])
+
+
+                                # save reconstructed images
+                                imwrite(
+                                    os.path.join(
+                                        config["results_dir"],
+                                        f"image_{dataset_name}_sample_{i}_{distortion_name}_{reconstructor_name}_uncorrected.tiff",
+                                    ),
+                                    convert_image_for_save(x_uncorrected),
+                                )
+                                imwrite(
+                                    os.path.join(
+                                        config["results_dir"],
+                                        f"image_{dataset_name}_sample_{i}_{distortion_name}_{reconstructor_name}_corrected.tiff",
+                                    ),
+                                    convert_image_for_save(x_corrected),
+                                )
+
+                            except Exception as e:
+                                print(
+                                    f"\t\tError using {reconstructor_name} with distortion {distortion_name} on sample {i}: {e}"
+                                )
+
+                    else:
+                        print(f"\t\t ... not compatible with {dataset_name}")
+
