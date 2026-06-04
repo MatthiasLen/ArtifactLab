@@ -188,6 +188,3 @@ class DistortedKspaceMultiCoilMRI(dinv.physics.MultiCoilMRI):
         y = self.distortion.A_adjoint(y)
 
         return super().A_adjoint(y)
-
-    # def A_dagger(self, y: torch.Tensor, **kwargs) -> torch.Tensor:
-    #     return super().A_dagger(y, coil_maps=self.coil_maps, **kwargs)

@@ -87,8 +87,9 @@ def get_measurement_sample(
         x = sample_batch[0].to(run_device)
         # k-space data, shape: (B, 2, n_timepoints, (n_coils), H, W) dtype: float32
         y = sample_batch[1].to(run_device)
-        # not available for all samples, either None or
-        # shape (1, num_coils, H, W)
+
+        # maybe not needed, as there are no coil maps in the current
+        # cmrxrecon sample
         coil_maps = (
             sample_batch[2]["coil_maps"].to(run_device)
             if isinstance(sample_batch, (tuple, list))
@@ -96,9 +97,13 @@ def get_measurement_sample(
             and "coil_maps" in sample_batch[2]
             else None
         )
-
-        # centered k-space data, shape: (B, 2, num_clois, H, W) dtype: float32
+        # centered k-space data, shape: (B, 2, n_timepoints, (n_coils), H, W) dtype: float32
         y_centered = fastmri_measurement_to_oasis_kspace(y, coil_maps=coil_maps, device=run_device)
+
+        # select the first timepoint in order to simplify the evaluation of the reconstruction algorithms
+        y = y[:, :, 0, ...]
+        y_centered = y_centered[:, :, 0, ...]
+        x = x[:, :, 0, ...]
 
     elif dataset_name == "fastmri_prostate":
         # reference image, shape: (B, W, H): dtype float32
@@ -164,7 +169,7 @@ if __name__ == "__main__":
         # loop through samples of dataset
         for i, batch in enumerate(iter(torch.utils.data.DataLoader(dataset))):
             # exit loop if we have processed the specified number of samples
-            if i >= config["num_samples"]:
+            if (config["num_samples"] is not None) and (i >= config["num_samples"]):
                 break
 
             print(f"{dataset_name} sample {i}...")
