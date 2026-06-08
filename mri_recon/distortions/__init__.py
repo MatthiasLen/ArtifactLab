@@ -3,7 +3,11 @@ from .base import (
     DistortedKspaceMultiCoilMRI,
     SelfAdjointMultiplicativeMaskDistortion,
 )
-from .biasfield import GaussianKspaceBiasField, OffCenterAnisotropicGaussianKspaceBiasField
+from .biasfield import (
+    GaussianKspaceBiasField,
+    GaussianBiasField,
+    OffCenterAnisotropicGaussianKspaceBiasField,
+)
 from .ghosting import PhaseEncodeGhostingDistortion
 from .motion import (
     RotationalMotionDistortion,
@@ -20,4 +24,4 @@ from .resolution import (
     RadialHighPassEmphasisDistortion,
 )
 from .undersampling import CartesianUndersampling, PartialFourierDistortion
-from .utils import choose_distortion
+from .utils import choose_distortion_with_params

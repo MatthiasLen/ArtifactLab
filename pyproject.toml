@@ -18,6 +18,7 @@ dependencies = [
     "pytest>=9.0.2",
     "python-certifi-win32>=1.6.1",
     "sigpy>=0.1.27",
+    "SimpleITK>=2.5.5",
     "torch>=2.11.0",
     "torchmetrics>=1.9.0",
     "torchvision>=0.26.0",

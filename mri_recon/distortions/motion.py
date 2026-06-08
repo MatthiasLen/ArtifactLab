@@ -65,8 +65,16 @@ class RotationalMotionDistortion(BaseDistortion):
     :param float angle_radians: In-plane rotation angle in radians.
     """
 
-    def __init__(self, angle_radians: float = torch.pi / 12) -> None:
+    def __init__(
+        self, angle_radians: float | None = None, angle_degrees: float | None = None
+    ) -> None:
         super().__init__()
+        if angle_radians is None:
+            if angle_degrees is None:
+                angle_radians = torch.pi / 12
+            else:
+                angle_radians = 2 * torch.pi * angle_degrees / 360.0
+
         self.angle_radians = float(angle_radians)
 
     def _reshape_kspace_channels(self, y: torch.Tensor) -> tuple[torch.Tensor, tuple[int, ...]]:
@@ -192,10 +200,26 @@ class SegmentedRotationalMotionDistortion(BaseDistortion):
         motion changes across the phase-encode lines.
     """
 
-    def __init__(self, angle_radians: tuple[float, ...], segment_axis: int = -2) -> None:
+    def __init__(
+        self,
+        angle_radians: tuple[float, ...] | None = None,
+        angle_degrees: tuple[float, ...] | None = None,
+        segment_axis: int = -2,
+    ) -> None:
         super().__init__()
-        if len(angle_radians) == 0:
+
+        if angle_radians is None:
+            if angle_degrees is None:
+                raise ValueError("Either angle_radians or angle_degrees must not be None")
+            else:
+                if len(angle_degrees) == 0:
+                    raise ValueError("angle_degrees must be non-empty list")
+                else:
+                    angle_radians = [2 * torch.pi * alpha / 360.0 for alpha in angle_degrees]
+        elif len(angle_radians) == 0:
             raise ValueError("angle_radians must be non-empty")
+
+        self.angle_radians = angle_radians
 
         if segment_axis not in (-2, -1):
             raise ValueError("segment_axis must be -2 or -1 for 2D k-space")

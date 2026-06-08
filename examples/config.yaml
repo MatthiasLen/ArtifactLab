@@ -6,26 +6,64 @@ data:
   "fastmri_prostate": "/path/to/fastmri/fastMRI_prostate_T2_IDS_001_020"
 
 distortions:
-    - "BaseDistortion"
-    - "CartesianUndersamplingVariableDensity"
-    - "CartesianUndersamplingUniformRandom"
-    - "CartesianUndersamplingUniformRandomZeroACS"
-    - "CartesianUndersamplingEquispaced"
-    - "CartesianUndersamplingEquispacedZeroACS"
-    - "PartialFourier"
-    - "PhaseEncodeGhosting"
-    - "SegmentedTranslationMotion"
-    - "SegmentedRotationalMotion"
-    - "TranslationMotion"
-    - "RotationalMotion"
-    - "OffCenterAnisotropicGaussianKspaceBiasField"
-    - "GaussianKspaceBiasField"
-    - "AnisotropicLP"
-    - "HannTaperLP"
-    - "KaiserTaperLP"
-    - "GaussianNoise"
-    - "IsotropicLP"
-    - "RadialHighPassEmphasis"
+    - "BaseDistortion": {}
+    - "CartesianUndersamplingVariableDensity":
+        "keep_fraction": "keep_fraction"
+        "center_fraction": "center_fraction"
+    - "CartesianUndersamplingUniformRandom":
+        "keep_fraction": "keep_fraction"
+        "center_fraction": "center_fraction"
+    - "CartesianUndersamplingUniformRandomZeroACS":
+        "keep_fraction": "keep_fraction"
+    - "CartesianUndersamplingEquispaced":
+        "keep_fraction": "keep_fraction"
+        "center_fraction": "center_fraction"
+    - "CartesianUndersamplingEquispacedZeroACS":
+        "keep_fraction": "keep_fraction"
+    - "PartialFourier":
+        "side": "high"
+    - "PhaseEncodeGhosting":
+        "line_period": 2,
+        "line_offset": 1,
+        "phase_error_radians": torch.pi / 2,
+        "corrupted_line_scale": 1.0
+    - "SegmentedTranslationMotion":
+        "shift_x_pixels": [0.0, 20.0, 50.0, -50.0]
+        "shift_y_pixels": [0.0, 10.0, -20.0, 20.0]
+    - "SegmentedRotationalMotion":
+        #"angle_radians": [0.0, torch.pi / 20, -torch.pi / 24, torch.pi / 16]
+        "angle_degrees": [0.0, 18.0, -15.0, 22.5]
+    - "TranslationMotion":
+        "shift_x_pixels": 60
+        "shift_y_pixels": 10
+    - "RotationalMotion":
+        # angle_radians=torch.pi / 6
+        "angle_degrees": 60.0
+    - "OffCenterAnisotropicGaussianBiasField":
+        "width_x_fraction": 0.2
+        "width_y_fraction": 0.35
+        "center_x_fraction": 0.15
+        "center_y_fraction": -0.1
+        "edge_gain": 0.05
+    - "GaussianBiasField":
+        "width_fraction": 0.35
+        "edge_gain": 0.05
+    - "AnisotropicLP":
+        "kx_radius_fraction": 1.0,
+        "ky_radius_fraction": 0.25,
+    - "HannTaperLP":
+        "radius_fraction": 0.35,
+        "transition_fraction": 0.4,
+    - "KaiserTaperLP":
+        "radius_fraction": 0.35,
+        "transition_fraction": 0.4,
+        "beta": 8.6,
+    - "GaussianNoise":
+        "sigma": 0.00001
+    - "IsotropicLP":
+        "radius_fraction": 0.1
+    - "RadialHighPassEmphasis":
+        "alpha": 0.4
 reconstruction_algorithms:
     - "zero-filled"
     - "conjugate-gradient"
@@ -39,8 +77,7 @@ reconstruction_algorithms:
     - "unet-oasis-acceleration4"
     #- "unet-oasis-acceleration8"
     #- "unet-oasis-acceleration10"
+add_N4Correction: false
 num_samples: 1
-keep_fraction: 0.25
-center_fraction: 0.125
 verbose: true
 results_dir: "/home/melanie.dohmen/ArtifactLab/reports/experiments_run1"
