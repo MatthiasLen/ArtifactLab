@@ -18,6 +18,7 @@ from mri_recon.distortions import (
     choose_distortion_with_params,
     BaseDistortion,
     DistortedKspaceMultiCoilMRI,
+    image_to_shifted_kspace,
 )
 from mri_recon.reconstruction import (
     ConjugateGradientReconstructor,
@@ -30,21 +31,11 @@ from mri_recon.reconstruction import (
 from mri_recon.utils import (
     OasisCenteredFFTPhysics,
     OasisSliceDataset,
-    fastmri_measurement_to_image,
     fastmri_measurement_to_oasis_kspace,
-    image_to_kspace,
     kspace_to_image,
     save_kspace_plot,
 )
 
-FASTMRI_REPORT_DIR = Path("reports") / "fastmri_inference_plot"
-FASTMRI_MULTICOIL_REPORT_DIR = Path("reports") / "fastmri_multicoil_inference_plot"
-OASIS_REPORT_DIR = Path("reports") / "oasis_inference_plot"
-CMRXRECON_REPORT_DIR = Path("reports") / "cmrxrecon_inference_plot"
-FASTMRI_REPORT_DIR.mkdir(parents=True, exist_ok=True)
-FASTMRI_MULTICOIL_REPORT_DIR.mkdir(parents=True, exist_ok=True)
-OASIS_REPORT_DIR.mkdir(parents=True, exist_ok=True)
-CMRXRECON_REPORT_DIR.mkdir(parents=True, exist_ok=True)
 ALGORITHMS = [
     # "zero-filled",
     "conjugate-gradient",
@@ -187,27 +178,11 @@ def prepare_measurement_sample(
 
     if dataset_name == "oasis":
         x = sample_batch["x"].to(run_device)
-        y = image_to_kspace(x)
+        y = image_to_shifted_kspace(x)
         coil_maps = None
-    elif dataset_name == "fastmri" and use_oasis_fft_path:
-        y = sample_batch[1].to(run_device)
-        x = fastmri_measurement_to_image(y)
-        y = fastmri_measurement_to_oasis_kspace(y, device=run_device)
-        coil_maps = None
-    elif dataset_name == "fastmri_multicoil" and use_oasis_fft_path:
-        y = sample_batch[1].to(run_device)
 
-        coil_maps = (
-            sample_batch[2]["coil_maps"].to(run_device)
-            if isinstance(sample_batch, (tuple, list))
-            and len(sample_batch) == 3
-            and "coil_maps" in sample_batch[2]
-            else None
-        )
-        x = fastmri_measurement_to_image(y, coil_maps=coil_maps)
-        y = fastmri_measurement_to_oasis_kspace(y, coil_maps=coil_maps, device=run_device)
     elif dataset_name in ("fastmri", "fastmri_multicoil"):
-        x = None
+        x = sample_batch[0].to(run_device)
         y = sample_batch[1].to(run_device)
         coil_maps = (
             sample_batch[2]["coil_maps"].to(run_device)
@@ -226,6 +201,9 @@ def prepare_measurement_sample(
             and "coil_maps" in sample_batch[2]
             else None
         )
+
+        if use_oasis_fft_path:
+            y = fastmri_measurement_to_oasis_kspace(y, coil_maps=coil_maps, device=run_device)
 
     return x, y, coil_maps
 
@@ -275,18 +253,6 @@ if __name__ == "__main__":
     )
 
     parser.add_argument("--distortion", type=str, default="", choices=DISTORTIONS)
-    parser.add_argument(
-        "--keep_fraction",
-        type=float,
-        default=0.25,
-        help="Fraction of k-space lines to keep for undersampling distortions.",
-    )
-    parser.add_argument(
-        "--center_fraction",
-        type=float,
-        default=0.125,
-        help="Fraction of low-frequency k-space lines to keep fully for undersampling distortions.",
-    )
 
     # algo related arguments
     parser.add_argument(
@@ -308,6 +274,9 @@ if __name__ == "__main__":
     selected_algorithms = ALGORITHMS if args.algorithm == "" else [args.algorithm]
     selected_distortions = DISTORTIONS if args.distortion == "" else [args.distortion]
 
+    REPORT_DIR = Path("reports") / Path(args.dataset + "_inference_plot")
+    REPORT_DIR.mkdir(parents=True, exist_ok=True)
+
     # skip non-compatible algorithm-dataset pairs
     selected_algorithms = [
         algo_name
@@ -316,15 +285,7 @@ if __name__ == "__main__":
     ]
 
     # set up report dir
-    if args.dataset == "fastmri":
-        REPORT_DIR = FASTMRI_REPORT_DIR
-    elif args.dataset == "oasis":
-        REPORT_DIR = OASIS_REPORT_DIR
-    elif args.dataset == "fastmri_multicoil":
-        REPORT_DIR = FASTMRI_MULTICOIL_REPORT_DIR
-    elif args.dataset == "cmrxrecon":
-        REPORT_DIR = CMRXRECON_REPORT_DIR
-    else:
+    if args.dataset not in ["fastmri", "oasis", "fastmri_multicoil", "cmrxrecon"]:
         raise NotImplementedError(f"Invalid dataset: {args.dataset}")
 
     # set up device, dataset, metrics
@@ -405,6 +366,12 @@ if __name__ == "__main__":
                                 y_distorted, physics_clean
                             )
 
+                        if x_clean.shape[-2:] != x_reference.shape[-2:]:
+                            x_clean = physics_clean.crop(x_clean, shape=x_reference.shape[-2:])
+
+                        if x_distorted.shape[-2:] != x_reference.shape[-2:]:
+                            x_distorted = physics.crop(x_distorted, shape=x_reference.shape[-2:])
+
                         save_kspace_plot(
                             y,
                             y_distorted,
@@ -418,7 +385,16 @@ if __name__ == "__main__":
 
                         # actual reconstruction with the algo being evaluated
                         x_uncorrected = algo(y_distorted, physics_clean)
+
+                        # crop recostructed image to reference image size:
+                        if x_uncorrected.shape[-2:] != x_reference.shape[-2:]:
+                            x_uncorrected = physics_clean.crop(
+                                x_uncorrected, shape=x_reference.shape[-2:]
+                            )
+
                         x_corrected = algo(y_distorted, physics)
+                        if x_corrected.shape[-2:] != x_reference.shape[-2:]:
+                            x_corrected = physics.crop(x_corrected, shape=x_reference.shape[-2:])
 
                         print("done!")
 

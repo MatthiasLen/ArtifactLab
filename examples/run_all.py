@@ -24,6 +24,7 @@ from mri_recon.distortions import (
     BaseDistortion,
     DistortedKspaceMultiCoilMRI,
     choose_distortion_with_params,
+    image_to_shifted_kspace,
 )
 from mri_recon.reconstruction import (
     choose_reconstructor,
@@ -35,7 +36,6 @@ from mri_recon.utils import (
     OasisCenterSliceFolderDataset,
     FastMRIProstateDataset,
     fastmri_measurement_to_oasis_kspace,
-    oasis_kspace_to_fastmri_measurement,
     image_to_kspace,
     _kspace_to_log_magnitude,
     convert_image_for_save,
@@ -60,7 +60,8 @@ def get_measurement_sample(
         # centered k-space data, shape: (B, 2, H, W) dtype: float32
         y_centered = image_to_kspace(x)
         # k-space data, shape: (B, 2, H, W) dtype: float32
-        y = oasis_kspace_to_fastmri_measurement(y_centered)
+        # y = oasis_kspace_to_fastmri_measurement(y_centered)
+        y = image_to_shifted_kspace(x)
     elif dataset_name == "fastmri_knee":
         # reference image, shape: (B, 1, H/2, H/2) dtype: float32
         x = sample_batch[0].to(run_device)
@@ -120,7 +121,14 @@ def get_measurement_sample(
 
         # (B, 2, H, W)
         y_centered = image_to_kspace(x)
-        y = oasis_kspace_to_fastmri_measurement(y_centered)
+        # y = oasis_kspace_to_fastmri_measurement(y_centered)
+        y = image_to_shifted_kspace(x)
+
+    print("Debug shapes:")
+    print("x: ", x.shape)
+    print("y: ", y.shape)
+    print("y_centered: ", y_centered.shape)
+    print("coil_maps: ", coil_maps.shape if coil_maps is not None else "None")
 
     return x, y, y_centered, coil_maps
 
@@ -377,19 +385,21 @@ def run_all(config) -> None:
                                 print(f"\t\t ... not compatible with {dataset_name}")
 
             if config["add_N4Correction"]:
-                reconstructed_images = glob.glob(
-                    os.path.join(config["results_dir"], "*corrected.tiff")
+                reconstructed_bias_field_images = glob.glob(
+                    os.path.join(config["results_dir"], "*BiasField*corrected.tiff")
                 )
-                print(
-                    f"Found {len(reconstructed_images)} in result folder, applying N4 Bias Field Correction"
+                reference_images = glob.glob(
+                    os.path.join(config["results_dir"], "image*reference.tiff")
                 )
+                images_for_n4_correction = reconstructed_bias_field_images + reference_images
                 with tqdm.tqdm(
-                    total=len(reconstructed_images), desc="Applying N4 Bias Field Correction"
+                    total=len(images_for_n4_correction), desc="Applying N4 Bias Field Correction"
                 ) as pbar:
-                    for reconstructed_image_filename in reconstructed_images:
+                    for reconstructed_image_filename in images_for_n4_correction:
+                        print(reconstructed_image_filename)
                         reconstructed_image = imread(reconstructed_image_filename).squeeze()
                         if len(reconstructed_image.shape) == 2:
-                            sitk_img = sitk.GetImageFromArray(reconstructed_image)
+                            sitk_img = sitk.GetImageFromArray(reconstructed_image.T)
                             # sitk_mask = sitk.GetImageFromArray(mask.astype(np.uint8).T)
 
                             corrector = sitk.N4BiasFieldCorrectionImageFilter()
@@ -405,9 +415,7 @@ def run_all(config) -> None:
                                 bias_n4 > 0, bias_n4, 1.0
                             )
                             imwrite(
-                                reconstructed_image_filename.replace(
-                                    "corrected.tiff", "corrected_N4.tiff"
-                                ),
+                                reconstructed_image_filename.replace(".tiff", "_N4.tiff"),
                                 reconstructed_image_n4,
                             )
 

@@ -39,14 +39,23 @@ distortions:
     - "RotationalMotion":
         # angle_radians=torch.pi / 6
         "angle_degrees": 60.0
+    # - "OffCenterAnisotropicGaussianKspaceBiasField":
+    #     "width_x_fraction": 0.2
+    #     "width_y_fraction": 0.35
+    #     "center_x_fraction": 0.15
+    #     "center_y_fraction": -0.1
+    #     "edge_gain": 0.3
     - "OffCenterAnisotropicGaussianBiasField":
         "width_x_fraction": 0.2
         "width_y_fraction": 0.35
         "center_x_fraction": 0.15
         "center_y_fraction": -0.1
         "edge_gain": 0.05
+    # - "GaussianKspaceBiasField":
+    #     "width_fraction": 0.35
+    #     "edge_gain": 0.4
     - "GaussianBiasField":
-        "width_fraction": 0.35
+        "width_fraction": 0.15
         "edge_gain": 0.05
     - "AnisotropicLP":
         "kx_radius_fraction": 1.0,
@@ -67,16 +76,17 @@ distortions:
 reconstruction_algorithms:
     - "zero-filled"
     - "conjugate-gradient"
-    #- "ram",
-    #- "dip",
-    #- "tv-pgd",
-    #- "wavelet-fista",
-    #- "tv-fista",
-    #- "tv-pdhg",
+    #- "ram"
+    #- "dip"
+    #- "tv-pgd"
+    #- "wavelet-fista"
+    #- "tv-fista"
+    #- "tv-pdhg"
     - "unet-fastmri"
     - "unet-oasis-acceleration4"
     #- "unet-oasis-acceleration8"
     #- "unet-oasis-acceleration10"
+# additionally performs N4 Bias Field correction on reference images and BiasField-distorted and reconstructed ones
 add_N4Correction: false
 num_samples: 1
 verbose: true

@@ -2,6 +2,8 @@ from .base import (
     BaseDistortion,
     DistortedKspaceMultiCoilMRI,
     SelfAdjointMultiplicativeMaskDistortion,
+    image_to_shifted_kspace,
+    shifted_kspace_to_image,
 )
 from .biasfield import (
     GaussianKspaceBiasField,
