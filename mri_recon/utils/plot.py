@@ -53,17 +53,10 @@ def save_kspace_plot(
 ) -> None:
     """Save side-by-side log-magnitude visualizations of clean and distorted k-space."""
 
-    print("transforming k-space to log-magnitude images for visualization...")
-    print(f"\tclean k-space shape: {clean_kspace.shape}")
-    print(f"\tdistorted k-space shape: {distorted_kspace.shape}")
-
     images = [
         ("Original k-space", _kspace_to_log_magnitude(clean_kspace)),
         ("Distorted k-space", _kspace_to_log_magnitude(distorted_kspace)),
     ]
-
-    print(f"clean k-space magnitude shape: {images[0][1].shape}")
-    print(f"distorted k-space magnitude shape: {images[1][1].shape}")
 
     fig, axes = plt.subplots(1, 2, figsize=(8, 4), constrained_layout=True)
     fig.suptitle(f"Distortion: {distortion_label}")

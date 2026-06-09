@@ -22,7 +22,6 @@ from mri_recon.distortions import (
 )
 from mri_recon.reconstruction import (
     ConjugateGradientReconstructor,
-    OASISSinglecoilUnetReconstructor,
     choose_reconstructor,
     uses_oasis_centered_path,
     compatible_dataset_with_reconstructor,
@@ -30,7 +29,8 @@ from mri_recon.reconstruction import (
 )
 from mri_recon.utils import (
     OasisCenteredFFTPhysics,
-    OasisSliceDataset,
+    OasisCenterSliceFolderDataset,
+    FastMRIProstateDataset,
     fastmri_measurement_to_oasis_kspace,
     kspace_to_image,
     save_kspace_plot,
@@ -101,13 +101,13 @@ DISTORTIONS = [
             "width_y_fraction": 0.35,
             "center_x_fraction": 0.15,
             "center_y_fraction": -0.1,
-            "edge_gain": 0.3,
+            "edge_gain": 0.05,
         }
     },
     {
         "GaussianBiasField": {
             "width_fraction": 0.35,
-            "edge_gain": 0.4,
+            "edge_gain": 0.05,
         }
     },
     # {"AnisotropicLP": {
@@ -201,6 +201,16 @@ def prepare_measurement_sample(
             and "coil_maps" in sample_batch[2]
             else None
         )
+    elif dataset_name == "fastmri_prostate":
+        # reference image, shape: (B, W, H): dtype float32
+        x = sample_batch[0].to(run_device)
+
+        # add zero imaginary channel:
+        # (B, H, W) -> (B, 2, H, W)
+        x = torch.stack([x, torch.zeros_like(x)], dim=1)
+
+        # (B, 2, H, W)
+        y = image_to_shifted_kspace(x)
 
         if use_oasis_fft_path:
             y = fastmri_measurement_to_oasis_kspace(y, coil_maps=coil_maps, device=run_device)
@@ -274,9 +284,6 @@ if __name__ == "__main__":
     selected_algorithms = ALGORITHMS if args.algorithm == "" else [args.algorithm]
     selected_distortions = DISTORTIONS if args.distortion == "" else [args.distortion]
 
-    REPORT_DIR = Path("reports") / Path(args.dataset + "_inference_plot")
-    REPORT_DIR.mkdir(parents=True, exist_ok=True)
-
     # skip non-compatible algorithm-dataset pairs
     selected_algorithms = [
         algo_name
@@ -284,18 +291,11 @@ if __name__ == "__main__":
         if compatible_dataset_with_reconstructor(args.dataset, algo_name)
     ]
 
-    # set up report dir
-    if args.dataset not in ["fastmri", "oasis", "fastmri_multicoil", "cmrxrecon"]:
-        raise NotImplementedError(f"Invalid dataset: {args.dataset}")
-
     # set up device, dataset, metrics
     device = dinv.utils.get_device()
     if args.dataset == "oasis":
-        split_csv = OASISSinglecoilUnetReconstructor.resolve_default_split_csv()
-        dataset = OasisSliceDataset(
+        dataset = OasisCenterSliceFolderDataset(
             data_path=args.source,
-            split_csv=split_csv,
-            sample_rate=0.6,
         )
     elif args.dataset == "fastmri":
         dataset = dinv.datasets.FastMRISliceDataset(str(args.source), slice_index="middle")
@@ -312,8 +312,18 @@ if __name__ == "__main__":
         dataset = dinv.datasets.CMRxReconSliceDataset(
             str(args.source), data_dir="SingleCoil/Cine/TrainingSet/FullSample", apply_mask=False
         )
+    elif args.dataset == "fastmri_prostate":
+        dataset = FastMRIProstateDataset(
+            data_path=str(args.source), num_samples=args.num_samples, slice_index="middle"
+        )
+
     else:
         raise NotImplementedError(f"Invalid dataset: {args.dataset}")
+
+    # set up report dir
+    REPORT_DIR = Path("reports") / Path(args.dataset + "_inference_plot")
+    REPORT_DIR.mkdir(parents=True, exist_ok=True)
+
     metrics = [choose_metric(m) for m in METRICS]
 
     for i, batch in enumerate(iter(torch.utils.data.DataLoader(dataset))):
