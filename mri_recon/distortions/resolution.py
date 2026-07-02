@@ -351,3 +351,58 @@ class RadialHighPassEmphasisDistortion(SelfAdjointMultiplicativeMaskDistortion):
         transition = transition.clamp(0.0, 1.0)
         transition = transition * transition * (3.0 - 2.0 * transition)
         return 1.0 + self.alpha * transition
+
+
+class ResolutionReductionByKspaceCropping:
+    """
+    Reduces the resolution of an image by cropping its k-space representation.
+    The cropping is done by keeping only a fraction of the k-space data, specified by the `crop_fraction` parameter.
+
+    The image with lower resolution can be upsampled back to the original size by the `_upsample_back` method, but this will not recover the lost high-frequency information.
+
+    This distortion is not compatible with BaseDistortion, because it changes the dimensions of the given k-space Tensor y.
+    """
+
+    def __init__(self, crop_fraction: float = 0.5, img_size: tuple[int, int] = None) -> None:
+        super().__init__()
+        if not 0.0 < crop_fraction <= 1.0:
+            raise ValueError("crop_fraction must be in (0, 1]")
+        self.crop_fraction = crop_fraction
+        self.img_size = img_size
+
+    def _apply_crop(self, y: torch.Tensor) -> torch.Tensor:
+        if self.img_size is None:
+            self.img_size = y.shape[-2:]
+        # y is assumed to be in k-space
+        # crop k-space to reduce resolution
+        w = y.shape[-2]
+        h = y.shape[-1]
+        w_lowres = int(w * self.crop_fraction)
+        h_lowres = int(h * self.crop_fraction)
+        frac_diffw = (w - w_lowres) // 2
+        frac_diffh = (h - h_lowres) // 2
+        y_cropped = y[..., frac_diffw : w_lowres + frac_diffw, frac_diffh : h_lowres + frac_diffh]
+        return y_cropped
+
+    def _upsample_back(self, y_cropped: torch.Tensor) -> torch.Tensor:
+        # upsample back to original size
+
+        y_upsampled = torch.nn.functional.interpolate(
+            y_cropped, scale_factor=1 / self.crop_fraction, mode="nearest"
+        )
+
+        # center crop to original image size:
+        if self.img_size is not None:
+            if (
+                y_upsampled.shape[-2] != self.img_size[0]
+                or y_upsampled.shape[-1] != self.img_size[1]
+            ):
+                frac_diffw = (y_upsampled.shape[-2] - self.img_size[0]) // 2
+                frac_diffh = (y_upsampled.shape[-1] - self.img_size[1]) // 2
+                y_upsampled = y_upsampled[
+                    ...,
+                    frac_diffw : frac_diffw + self.img_size[0],
+                    frac_diffh : frac_diffh + self.img_size[1],
+                ]
+
+        return y_upsampled

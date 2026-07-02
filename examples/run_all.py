@@ -11,7 +11,6 @@ import SimpleITK as sitk
 import numpy as np
 import tqdm
 
-
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from datetime import datetime
@@ -23,6 +22,7 @@ from tifffile import imwrite, imread
 from mri_recon.distortions import (
     BaseDistortion,
     DistortedKspaceMultiCoilMRI,
+    ResolutionReductionByKspaceCropping,
     choose_distortion_with_params,
     image_to_shifted_kspace,
 )
@@ -55,6 +55,7 @@ def get_measurement_sample(
     """
     coil_maps = None
     if dataset_name == "oasis":
+        sample_name = sample_batch["subject_id"][0].replace("_", "-")
         # reference image, shape: (B, 2, H, W) dtype: float32
         x = sample_batch["x"].to(run_device)
         # centered k-space data, shape: (B, 2, H, W) dtype: float32
@@ -62,7 +63,10 @@ def get_measurement_sample(
         # k-space data, shape: (B, 2, H, W) dtype: float32
         # y = oasis_kspace_to_fastmri_measurement(y_centered)
         y = image_to_shifted_kspace(x)
+
     elif dataset_name == "fastmri_knee":
+        # sample name must be fetched from dataset directly
+        sample_name = None
         # reference image, shape: (B, 1, H/2, H/2) dtype: float32
         x = sample_batch[0].to(run_device)
         # kspace data, shape: (B, 2, H, W) dtype: float32
@@ -72,10 +76,13 @@ def get_measurement_sample(
         # reconstructed reference image:
         # shape: (B, 1, H, W) dtype: float32
     elif dataset_name == "fastmri_brain":
+        # sample name must be fetched from dataset directly
+        sample_name = None
         # reference image, shape: (B, 1, H/2, H/2) dtype: float32
         x = sample_batch[0].to(run_device)
         # kspace data, shape: (B, 2, num_coils, H, W) dtype: float32
         y = sample_batch[1].to(run_device)
+
         # coil maps, shape: (B, num_coils, H, W) dtype: complex64
         coil_maps = (
             sample_batch[2]["coil_maps"].to(run_device)
@@ -88,6 +95,8 @@ def get_measurement_sample(
         y_centered = fastmri_measurement_to_oasis_kspace(y, coil_maps=coil_maps, device=run_device)
 
     elif dataset_name == "cmrxrecon":
+        # sample name must be fetched from dataset directly
+        sample_name = None
         # reference image, shape: (B, 2, n_timepoints, (n_coils), H, W)
         x = sample_batch[0].to(run_device)
         # k-space data, shape: (B, 2, n_timepoints, (n_coils), H, W) dtype: float32
@@ -113,7 +122,8 @@ def get_measurement_sample(
 
     elif dataset_name == "fastmri_prostate":
         # reference image, shape: (B, W, H): dtype float32
-        x = sample_batch[0].to(run_device)
+        x = sample_batch["image"].to(run_device)
+        sample_name = sample_batch["sample_name"][0]
 
         # add zero imaginary channel:
         # (B, H, W) -> (B, 2, H, W)
@@ -130,7 +140,7 @@ def get_measurement_sample(
     print("y_centered: ", y_centered.shape)
     print("coil_maps: ", coil_maps.shape if coil_maps is not None else "None")
 
-    return x, y, y_centered, coil_maps
+    return x, y, y_centered, coil_maps, sample_name
 
 
 def run_all(config) -> None:
@@ -178,16 +188,38 @@ def run_all(config) -> None:
                 break
 
             print(f"{dataset_name} sample {i}...")
-            x_reference, y, y_centered, coil_maps = get_measurement_sample(
+            x_reference, y, y_centered, coil_maps, sample_name = get_measurement_sample(
                 sample_batch=batch,
                 dataset_name=dataset_name,
                 run_device=device,
             )
 
+            if sample_name is None:
+                if dataset_name == "fastmri_knee" or dataset_name == "fastmri_brain":
+                    fname, _, _ = dataset.samples[i]
+                    sample_name = os.path.basename(fname).split(".")[0]
+                    sample_name = (
+                        sample_name.replace("brain_", "")
+                        .replace("knee_", "")
+                        .replace("file_", "")
+                        .replace("file", "")
+                        .replace("_", "-")
+                    )
+                elif dataset_name == "cmrxrecon":
+                    fname, _, _ = dataset.samples[i]
+                    patient_id = os.path.basename(os.path.dirname(fname))
+                    sample_name = (
+                        f"{patient_id}-{os.path.basename(fname).split('.')[0].replace('_', '-')}"
+                    )
+                else:
+                    sample_name = f"sample{i}"
+
+            print("sample_name: ", sample_name)
+
             # save reference image
             imwrite(
                 os.path.join(
-                    config["results_dir"], f"image_{dataset_name}_sample_{i}_reference.tiff"
+                    config["results_dir"], f"image_{dataset_name}_{sample_name}_reference.tiff"
                 ),
                 convert_image_for_save(x_reference),
             )
@@ -240,14 +272,14 @@ def run_all(config) -> None:
                                 imwrite(
                                     os.path.join(
                                         config["results_dir"],
-                                        f"kspace_{dataset_name}_sample_{i}_reference.tiff",
+                                        f"kspace_{dataset_name}_{sample_name}_reference.tiff",
                                     ),
                                     _kspace_to_log_magnitude(y).numpy(),
                                 )
                                 imwrite(
                                     os.path.join(
                                         config["results_dir"],
-                                        f"kspace_{dataset_name}_sample_{i}_{distortion_name_with_params}.tiff",
+                                        f"kspace_{dataset_name}_{sample_name}_{distortion_name_with_params}.tiff",
                                     ),
                                     _kspace_to_log_magnitude(y_distorted).numpy(),
                                 )
@@ -272,14 +304,14 @@ def run_all(config) -> None:
                                     imwrite(
                                         os.path.join(
                                             config["results_dir"],
-                                            f"image_{dataset_name}_sample_{i}_{distortion_name_with_params}_{reconstructor_name}_uncorrected.tiff",
+                                            f"image_{dataset_name}_{sample_name}_{distortion_name_with_params}_{reconstructor_name}_uncorrected.tiff",
                                         ),
                                         convert_image_for_save(x_uncorrected),
                                     )
                                     imwrite(
                                         os.path.join(
                                             config["results_dir"],
-                                            f"image_{dataset_name}_sample_{i}_{distortion_name_with_params}_{reconstructor_name}_corrected.tiff",
+                                            f"image_{dataset_name}_{sample_name}_{distortion_name_with_params}_{reconstructor_name}_corrected.tiff",
                                         ),
                                         convert_image_for_save(x_corrected),
                                     )
@@ -425,6 +457,83 @@ def run_all(config) -> None:
                             print("which as shape ", reconstructed_image.shape)
 
                         pbar.update(1)
+
+            # apply true resolution reduction (image matrix size) by k-space cropping
+            for factor in config["resolution_reduction_factors"]:
+                print(f"Applying resolution reduction with factor {factor}")
+
+                kspace_crop = ResolutionReductionByKspaceCropping(
+                    crop_fraction=1.0 / factor, img_size=x_reference.shape[-2:]
+                )
+                y_distorted = kspace_crop._apply_crop(y)
+
+                if coil_maps is not None:
+                    coil_maps_channels = torch.view_as_real(coil_maps)
+                    coil_maps_channels_lowres_realnn = torch.nn.functional.interpolate(
+                        coil_maps_channels[..., 0], scale_factor=0.5, mode="nearest"
+                    )
+                    coil_maps_channels_lowres_imagnn = torch.nn.functional.interpolate(
+                        coil_maps_channels[..., 1], scale_factor=0.5, mode="nearest"
+                    )
+                    coil_maps_lowresnn = torch.view_as_complex(
+                        torch.stack(
+                            [coil_maps_channels_lowres_realnn, coil_maps_channels_lowres_imagnn],
+                            dim=-1,
+                        )
+                    )
+                else:
+                    coil_maps_lowresnn = None
+
+                physics_distorted = DistortedKspaceMultiCoilMRI(
+                    BaseDistortion(),
+                    img_size=(int(y.shape[-2] / factor), int(y.shape[-1] / factor)),
+                    coil_maps=coil_maps_lowresnn,
+                    device=device,
+                )
+
+                for reconstructor_name in config["reconstruction_algorithms"]:
+                    # only run on reconstructors, that use the fastmri-like k-space
+                    if not uses_oasis_centered_path(reconstructor_name):
+                        print(f"\t\t{reconstructor_name} ...")
+                        start = datetime.now()
+                        if compatible_dataset_with_reconstructor(dataset_name, reconstructor_name):
+                            reconstructor = choose_reconstructor(
+                                reconstructor_name,
+                                img_size=y_distorted.shape[-2:],
+                                device=device,
+                                verbose=config["verbose"],
+                            ).to(device)
+
+                            imwrite(
+                                os.path.join(
+                                    config["results_dir"],
+                                    f"kspace_{dataset_name}_{sample_name}_ReduceResolutionf={factor}.tiff",
+                                ),
+                                _kspace_to_log_magnitude(y_distorted).numpy(),
+                            )
+
+                            # actual reconstruction with the selected reconstructor
+                            try:
+                                x_corrected = reconstructor(y_distorted, physics_distorted)
+
+                                # restore original image size from reconstructed image by upsampling (and cropping if necessary)
+                                x_corrected = kspace_crop._upsample_back(x_corrected)
+
+                                # save reconstructed images
+                                imwrite(
+                                    os.path.join(
+                                        config["results_dir"],
+                                        f"image_{dataset_name}_{sample_name}_ReduceResolutionf={factor}_{reconstructor_name}_corrected.tiff",
+                                    ),
+                                    convert_image_for_save(x_corrected),
+                                )
+
+                                print(f"\t\t... done in {datetime.now() - start}")
+
+                            except Exception as e:
+                                print(f"Error using {reconstructor_name}: {e}")
+                        else:
+                            print(f"\t\t ... not compatible with {dataset_name}")
 
 
 if __name__ == "__main__":

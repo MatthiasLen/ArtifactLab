@@ -24,6 +24,7 @@ from .resolution import (
     IsotropicResolutionReduction,
     KaiserTaperResolutionReduction,
     RadialHighPassEmphasisDistortion,
+    ResolutionReductionByKspaceCropping,
 )
 from .undersampling import CartesianUndersampling, PartialFourierDistortion
 from .utils import choose_distortion_with_params
