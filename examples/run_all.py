@@ -111,13 +111,14 @@ def get_measurement_sample(
             and "coil_maps" in sample_batch[2]
             else None
         )
-        # centered k-space data, shape: (B, 2, n_timepoints, (n_coils), H, W) dtype: float32
-        y_centered = fastmri_measurement_to_oasis_kspace(y, coil_maps=coil_maps, device=run_device)
+        
 
         # select the center timepoint in order to simplify the evaluation of the reconstruction algorithms
         center_time_point = y.shape[2] // 2
         y = y[:, :, center_time_point, ...]
-        y_centered = y_centered[:, :, center_time_point, ...]
+
+        # centered k-space data, shape: (B, 2, H, W) dtype: float32
+        y_centered = fastmri_measurement_to_oasis_kspace(y, coil_maps=coil_maps, device=run_device)
         x = x[:, :, center_time_point, ...]
 
     elif dataset_name == "fastmri_prostate":
@@ -246,6 +247,22 @@ def run_all(config) -> None:
 
                     y_distorted = distortion.A(y)
 
+                    # save reference and distorted k-space for debugging purposes
+                    imwrite(
+                        os.path.join(
+                            config["results_dir"],
+                            f"kspace_{dataset_name}_{sample_name}_reference.tiff",
+                        ),
+                        _kspace_to_log_magnitude(y).numpy(),
+                    )
+                    imwrite(
+                        os.path.join(
+                            config["results_dir"],
+                            f"kspace_{dataset_name}_{sample_name}_{distortion_name_with_params}.tiff",
+                        ),
+                        _kspace_to_log_magnitude(y_distorted).numpy(),
+                    )
+
                     physics_distorted = DistortedKspaceMultiCoilMRI(
                         distortion,
                         img_size=y.shape[-2:],
@@ -254,8 +271,21 @@ def run_all(config) -> None:
                     )
 
                     for reconstructor_name in config["reconstruction_algorithms"]:
+
+                        corrected_reconstructed_image_filename = os.path.join(
+                                            config["results_dir"],
+                                            f"image_{dataset_name}_{sample_name}_{distortion_name_with_params}_{reconstructor_name}_corrected.tiff",
+                                        )
+                        uncorrected_reconstructed_image_filename = os.path.join(
+                                            config["results_dir"],
+                                            f"image_{dataset_name}_{sample_name}_{distortion_name_with_params}_{reconstructor_name}_uncorrected.tiff",
+                                        )
+
                         # only run on reconstructors, that use the fastmri-like k-space
-                        if not uses_oasis_centered_path(reconstructor_name):
+                        if (not uses_oasis_centered_path(reconstructor_name)) and (config["overwrite"] or
+                            not os.path.exists(corrected_reconstructed_image_filename)) and (   
+                            not os.path.exists(uncorrected_reconstructed_image_filename)):
+
                             print(f"\t\t{reconstructor_name} ...")
                             start = datetime.now()
                             if compatible_dataset_with_reconstructor(
@@ -268,22 +298,7 @@ def run_all(config) -> None:
                                     verbose=config["verbose"],
                                 ).to(device)
 
-                                # save reference and distorted k-space for debugging purposes
-                                imwrite(
-                                    os.path.join(
-                                        config["results_dir"],
-                                        f"kspace_{dataset_name}_{sample_name}_reference.tiff",
-                                    ),
-                                    _kspace_to_log_magnitude(y).numpy(),
-                                )
-                                imwrite(
-                                    os.path.join(
-                                        config["results_dir"],
-                                        f"kspace_{dataset_name}_{sample_name}_{distortion_name_with_params}.tiff",
-                                    ),
-                                    _kspace_to_log_magnitude(y_distorted).numpy(),
-                                )
-
+                                
                                 # actual reconstruction with the selected reconstructor
                                 try:
                                     x_uncorrected = reconstructor(y_distorted, physics_clean)
@@ -302,17 +317,11 @@ def run_all(config) -> None:
 
                                     # save reconstructed images
                                     imwrite(
-                                        os.path.join(
-                                            config["results_dir"],
-                                            f"image_{dataset_name}_{sample_name}_{distortion_name_with_params}_{reconstructor_name}_uncorrected.tiff",
-                                        ),
+                                        uncorrected_reconstructed_image_filename,                                        
                                         convert_image_for_save(x_uncorrected),
                                     )
                                     imwrite(
-                                        os.path.join(
-                                            config["results_dir"],
-                                            f"image_{dataset_name}_{sample_name}_{distortion_name_with_params}_{reconstructor_name}_corrected.tiff",
-                                        ),
+                                        corrected_reconstructed_image_filename,
                                         convert_image_for_save(x_corrected),
                                     )
                                     print(f"\t\t... done in {datetime.now() - start}")
@@ -343,11 +352,41 @@ def run_all(config) -> None:
                         distortion.A(torch.fft.fftshift(y_centered, dim=(-1, -2))), dim=(-2, -1)
                     )
 
+                    # save reference and distorted k-space for debugging purposes
+                    imwrite(
+                        os.path.join(
+                            config["results_dir"],
+                            f"kspace_centered_{dataset_name}_{sample_name}_reference.tiff",
+                        ),
+                        _kspace_to_log_magnitude(y_centered).numpy(),
+                    )
+                    imwrite(
+                        os.path.join(
+                            config["results_dir"],
+                            f"kspace_centered_{dataset_name}_{sample_name}_{distortion_name_with_params}.tiff",
+                        ),
+                        _kspace_to_log_magnitude(y_distorted).numpy(),
+                    )
+
+
                     physics_distorted = OasisCenteredFFTPhysics(distortion)
 
                     for reconstructor_name in config["reconstruction_algorithms"]:
+
+                        corrected_reconstructed_image_filename = os.path.join(
+                                            config["results_dir"],
+                                            f"image_{dataset_name}_{sample_name}_{distortion_name_with_params}_{reconstructor_name}_corrected.tiff",
+                                        )
+                        uncorrected_reconstructed_image_filename = os.path.join(
+                                            config["results_dir"],
+                                            f"image_{dataset_name}_{sample_name}_{distortion_name_with_params}_{reconstructor_name}_uncorrected.tiff",
+                                        )
                         # skip all reconstructors, that don't use the oasis-centered path
-                        if uses_oasis_centered_path(reconstructor_name):
+                        if (uses_oasis_centered_path(reconstructor_name) and
+                            (config["overwrite"] or
+                            (not os.path.exists(corrected_reconstructed_image_filename) and
+                            not os.path.exists(uncorrected_reconstructed_image_filename)))):
+
                             print(f"\t\t{reconstructor_name} ...")
                             start = datetime.now()
                             if compatible_dataset_with_reconstructor(
@@ -360,22 +399,7 @@ def run_all(config) -> None:
                                     verbose=config["verbose"],
                                 ).to(device)
 
-                                # save reference and distorted k-space for debugging purposes
-                                imwrite(
-                                    os.path.join(
-                                        config["results_dir"],
-                                        f"kspace_centered_{dataset_name}_{sample_name}_reference.tiff",
-                                    ),
-                                    _kspace_to_log_magnitude(y_centered).numpy(),
-                                )
-                                imwrite(
-                                    os.path.join(
-                                        config["results_dir"],
-                                        f"kspace_centered_{dataset_name}_{sample_name}_{distortion_name_with_params}.tiff",
-                                    ),
-                                    _kspace_to_log_magnitude(y_distorted).numpy(),
-                                )
-
+                                
                                 # actual reconstruction with the algo being evaluated
                                 try:
                                     x_uncorrected = reconstructor(y_distorted, physics_clean)
