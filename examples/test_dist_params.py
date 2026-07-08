@@ -14,7 +14,7 @@ if __name__ == "__main__":
         "data": {
             "fastmri_knee": "/home/melanie.dohmen/ArtifactLab/data/singlecoil_val",
             "oasis": "/home/melanie.dohmen/ArtifactLab/data/oasis",
-            "fastmri_brain": "/home/melanie.dohmen/ArtifactLab/data/fastMRI_multicoil_brain_test",
+            "fastmri_brain": "/home/melanie.dohmen/ArtifactLab/data/fastMRI_multicoil_brain_train0",
             "cmrxrecon": "/home/melanie.dohmen/ArtifactLab/data/CMRxRecon",
             "fastmri_prostate": "/home/melanie.dohmen/ArtifactLab/data/fastMRI_prostate_T2_IDS_001_020",
         },
@@ -28,6 +28,7 @@ if __name__ == "__main__":
             "conjugate-gradient",
         ],
         "add_N4Correction": False,
+        "resolution_reduction_factors": [],
         "num_samples": 1,
         "verbose": True,
         "results_dir": results_dir,
@@ -53,16 +54,51 @@ if __name__ == "__main__":
         #     "center_y_fraction": [-0.1, -0.1, -0.1, -0.1,  -0.1,-0.1,-0.1,-0.1,  -0.1,-0.1,-0.1,-0.1,],
         #     "edge_gain": [0.05,0.05,0.05,0.05,  0.1, 0.1, 0.1, 0.1,   0.5, 0.5, 0.5, 0.5,  ],
         # }},
+        # {
+        #     "CartesianUndersamplingEquispacedZeroACS": {
+        #         "keep_fraction": [0.1, 0.25, 0.5, 0.75, 0.85, 0.9, 0.95, 0.98]
+        #     },
+        # },
         {
-            "CartesianUndersamplingEquispacedZeroACS": {
-                "keep_fraction": [0.1, 0.25, 0.5, 0.75, 0.85, 0.9, 0.95, 0.98]
+            "AnisotropicLP": {
+                "kx_radius_fraction": [0.1, 0.25, 0.5, 0.75, 0.85, 0.9, 0.95, 1.0],
+                "ky_radius_fraction": [1.0, 0.95, 0.6, 0.85, 0.75, 0.5, 0.25, 0.1],
             },
+        },
+        {
+            "HannTaperLP": {
+                "radius_fraction": [0.1, 0.1, 0.5, 0.5, 0.9, 0.9, 1.0, 1.0],  # 0.35,
+                "transition_fraction": [0.2, 0.6, 0.2, 0.6, 0.2, 0.6, 0.2, 0.6],  # 0.4,
+            }
+        },
+        {
+            "KaiserTaperLP": {
+                "radius_fraction": [0.1, 0.1, 0.5, 0.5, 0.9, 0.9, 1.0, 1.0],  # 0.35,
+                "transition_fraction": [0.2, 0.6, 0.2, 0.6, 0.2, 0.6, 0.2, 0.6],  # 0.4,
+                "beta": [8.6, 8.6, 8.6, 8.6, 2.0, 2.0, 8.6, 8.6],  # 8.6
+            }
+        },
+        {
+            "GaussianNoise": {
+                "sigma": [0.00001, 0.0001, 0.001, 0.01, 0.1, 1.0],  # [0.00001]
+            }
+        },
+        {
+            "IsotropicLP": {
+                "radius_fraction": [0.1, 0.25, 0.5, 0.75, 0.85, 0.9, 0.95, 1.0],  # 0.1
+            }
+        },
+        {
+            "RadialHighPassEmphasis": {
+                "alpha": [0.1, 0.2, 0.4, 0.5, 0.75, 0.9, 1.0],  # 0.4
+            }
         },
     ]
 
     for d_idx, distortion_dict in enumerate(distortions):
         for distortion_name, dist_params in distortion_dict.items():
             nr_param_values = len(dist_params[list(dist_params.keys())[0]])
+            config["distortions"] = []
             for v_idx in range(nr_param_values):
                 single_value_distortion_dict = {
                     distortion_name: {
