@@ -8,37 +8,43 @@ data:
 distortions:
     - "BaseDistortion": {}
     - "CartesianUndersamplingVariableDensity":
-        "keep_fraction": "keep_fraction"
-        "center_fraction": "center_fraction"
+        "keep_fraction": 0.75
+        "center_fraction": 0.125
     - "CartesianUndersamplingUniformRandom":
-        "keep_fraction": "keep_fraction"
-        "center_fraction": "center_fraction"
+        "keep_fraction": 0.75
+        "center_fraction": 0.125
     - "CartesianUndersamplingUniformRandomZeroACS":
-        "keep_fraction": "keep_fraction"
+        "keep_fraction": 0.95
     - "CartesianUndersamplingEquispaced":
-        "keep_fraction": "keep_fraction"
-        "center_fraction": "center_fraction"
+        "keep_fraction": 0.75
+        "center_fraction": 0.125
     - "CartesianUndersamplingEquispacedZeroACS":
-        "keep_fraction": "keep_fraction"
+        "keep_fraction": 0.95
     - "PartialFourier":
         "side": "high"
     - "PhaseEncodeGhosting":
         "line_period": 2,
         "line_offset": 1,
-        "phase_error_radians": torch.pi / 2,
+        #"phase_error_radians": torch.pi / 2,
+        "phase_error_degrees": 90.0
         "corrupted_line_scale": 1.0
     - "SegmentedTranslationMotion":
-        "shift_x_pixels": [0.0, 20.0, 50.0, -50.0]
-        "shift_y_pixels": [0.0, 10.0, -20.0, 20.0]
+        #"shift_x_pixels": [0.0, 20.0, 50.0, -50.0]
+        #"shift_y_pixels": [0.0, 10.0, -20.0, 20.0]
+        "shift_x_pixels": [2.0, 0.0, -3.0, -5.0]
+        "shift_y_pixels": [-1.0, 1.0, 2.0, 3.0]
     - "SegmentedRotationalMotion":
         #"angle_radians": [0.0, torch.pi / 20, -torch.pi / 24, torch.pi / 16]
-        "angle_degrees": [0.0, 18.0, -15.0, 22.5]
+        "angle_degrees": [0.0, 2.0, -1.0, -3]
     - "TranslationMotion":
-        "shift_x_pixels": 60
-        "shift_y_pixels": 10
+        #"shift_x_pixels": 60
+        #"shift_y_pixels": 10
+        "shift_x_pixels": 5
+        "shift_y_pixels": 2
     - "RotationalMotion":
         # angle_radians=torch.pi / 6
-        "angle_degrees": 60.0
+        # angle_degrees: 60
+        "angle_degrees": 2.0
     # - "OffCenterAnisotropicGaussianKspaceBiasField":
     #     "width_x_fraction": 0.2
     #     "width_y_fraction": 0.35
