@@ -22,7 +22,9 @@ class FastMRIProstateDataset(torch.utils.data.Dataset):
     def get_image_data(self) -> tuple[np.ndarray, list[str]]:
         image_result_list = []
         sample_name_list = []
-        for sample_idx, filename in enumerate(glob.glob(os.path.join(self.data_path, "*.h5"))):
+        for sample_idx, filename in enumerate(
+            sorted(glob.glob(os.path.join(self.data_path, "*.h5")))
+        ):
             if (self.num_samples is not None) and (sample_idx >= self.num_samples):
                 break
             try:
