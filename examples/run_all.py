@@ -364,14 +364,14 @@ def run_all(config) -> None:
                                 imwrite(
                                     os.path.join(
                                         config["results_dir"],
-                                        f"kspace_centered_{dataset_name}_sample_{i}_reference.tiff",
+                                        f"kspace_centered_{dataset_name}_{sample_name}_reference.tiff",
                                     ),
                                     _kspace_to_log_magnitude(y_centered).numpy(),
                                 )
                                 imwrite(
                                     os.path.join(
                                         config["results_dir"],
-                                        f"kspace_centered_{dataset_name}_sample_{i}_{distortion_name_with_params}.tiff",
+                                        f"kspace_centered_{dataset_name}_{sample_name}_{distortion_name_with_params}.tiff",
                                     ),
                                     _kspace_to_log_magnitude(y_distorted).numpy(),
                                 )
@@ -395,14 +395,14 @@ def run_all(config) -> None:
                                     imwrite(
                                         os.path.join(
                                             config["results_dir"],
-                                            f"image_{dataset_name}_sample_{i}_{distortion_name_with_params}_{reconstructor_name}_uncorrected.tiff",
+                                            f"image_{dataset_name}_{sample_name}_{distortion_name_with_params}_{reconstructor_name}_uncorrected.tiff",
                                         ),
                                         convert_image_for_save(x_uncorrected),
                                     )
                                     imwrite(
                                         os.path.join(
                                             config["results_dir"],
-                                            f"image_{dataset_name}_sample_{i}_{distortion_name_with_params}_{reconstructor_name}_corrected.tiff",
+                                            f"image_{dataset_name}_{sample_name}_{distortion_name_with_params}_{reconstructor_name}_corrected.tiff",
                                         ),
                                         convert_image_for_save(x_corrected),
                                     )
@@ -410,7 +410,7 @@ def run_all(config) -> None:
 
                                 except Exception as e:
                                     print(
-                                        f"\t\tError using {reconstructor_name} with distortion {distortion_name_with_params} on sample {i}: {e}"
+                                        f"\t\tError using {reconstructor_name} with distortion {distortion_name_with_params} on {sample_name}: {e}"
                                     )
 
                             else:
