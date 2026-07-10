@@ -147,6 +147,16 @@ def get_measurement_sample(
 def run_all(config) -> None:
     os.makedirs(config["results_dir"], exist_ok=True)
 
+    if "samples" in config and config["samples"] is not None:
+        config["num_samples"] = max(config["samples"])
+    
+    elif "num_samples" in config and config["num_samples"] is not None:
+        config["samples"] = list(range(0, config["num_samples"]))
+    else:
+        print("No samples or num_samples specified in config. Running on all samples.")
+        config["samples"] = None
+        config["num_samples"] = None
+
     # set up device
     device = dinv.utils.get_device()
 
@@ -185,7 +195,7 @@ def run_all(config) -> None:
         # loop through samples of dataset
         for i, batch in enumerate(iter(torch.utils.data.DataLoader(dataset))):
             # exit loop if we have processed the specified number of samples
-            if (config["num_samples"] is not None) and (i >= config["num_samples"]):
+            if (config["num_samples"] is not None) and (i not in config["samples"]):
                 break
 
             print(f"{dataset_name} sample {i}...")
@@ -494,10 +504,10 @@ def run_all(config) -> None:
                 if coil_maps is not None:
                     coil_maps_channels = torch.view_as_real(coil_maps)
                     coil_maps_channels_lowres_realnn = torch.nn.functional.interpolate(
-                        coil_maps_channels[..., 0], scale_factor=0.5, mode="nearest"
+                        coil_maps_channels[..., 0], scale_factor=1/factor, mode="nearest"
                     )
                     coil_maps_channels_lowres_imagnn = torch.nn.functional.interpolate(
-                        coil_maps_channels[..., 1], scale_factor=0.5, mode="nearest"
+                        coil_maps_channels[..., 1], scale_factor=1/factor, mode="nearest"
                     )
                     coil_maps_lowresnn = torch.view_as_complex(
                         torch.stack(
