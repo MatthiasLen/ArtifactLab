@@ -194,9 +194,14 @@ def run_all(config) -> None:
 
         # loop through samples of dataset
         for i, batch in enumerate(iter(torch.utils.data.DataLoader(dataset))):
+
             # exit loop if we have processed the specified number of samples
             if (config["num_samples"] is not None) and (i not in config["samples"]):
-                break
+                continue
+        
+            print(f"Processing sample {i}...")
+            
+            
 
             print(f"{dataset_name} sample {i}...")
             x_reference, y, y_centered, coil_maps, sample_name = get_measurement_sample(
@@ -500,6 +505,8 @@ def run_all(config) -> None:
                     crop_fraction=1.0 / factor, img_size=x_reference.shape[-2:]
                 )
                 y_distorted = kspace_crop._apply_crop(y)
+
+                print("reduced size from ", y.shape[-2:], " to ", y_distorted.shape[-2:])
 
                 if coil_maps is not None:
                     coil_maps_channels = torch.view_as_real(coil_maps)
