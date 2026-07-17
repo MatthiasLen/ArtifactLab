@@ -9,6 +9,7 @@ from .biasfield import (
     GaussianKspaceBiasField,
     GaussianBiasField,
     OffCenterAnisotropicGaussianKspaceBiasField,
+    OffCenterAnisotropicGaussianBiasField,
 )
 from .ghosting import PhaseEncodeGhostingDistortion
 from .motion import (

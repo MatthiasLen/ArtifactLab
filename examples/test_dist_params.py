@@ -12,11 +12,11 @@ if __name__ == "__main__":
     # create config:
     config = {
         "data": {
-            "fastmri_knee": "/home/melanie.dohmen/ArtifactLab/data/singlecoil_val",
-            "oasis": "/home/melanie.dohmen/ArtifactLab/data/oasis",
+            #"fastmri_knee": "/home/melanie.dohmen/ArtifactLab/data/singlecoil_val",
+            #"oasis": "/home/melanie.dohmen/ArtifactLab/data/oasis",
             "fastmri_brain": "/home/melanie.dohmen/ArtifactLab/data/fastMRI_multicoil_brain_train0",
-            "cmrxrecon": "/home/melanie.dohmen/ArtifactLab/data/CMRxRecon",
-            "fastmri_prostate": "/home/melanie.dohmen/ArtifactLab/data/fastMRI_prostate_T2_IDS_001_020",
+            #"cmrxrecon": "/home/melanie.dohmen/ArtifactLab/data/CMRxRecon",
+            #"fastmri_prostate": "/home/melanie.dohmen/ArtifactLab/data/fastMRI_prostate_T2_IDS_001_020",
         },
         "distortions": [
             {
@@ -26,11 +26,22 @@ if __name__ == "__main__":
         "reconstruction_algorithms": [
             "zero-filled",
             "conjugate-gradient",
+            "ram",
+            # - "dip"
+            "tv-pgd",
+            "wavelet-fista",
+            "tv-fista",
+            "tv-pdhg",
+            "unet-fastmri",
+            "unet-oasis-acceleration4",
+            "unet-oasis-acceleration8",
+            "unet-oasis-acceleration10",
         ],
-        "add_N4Correction": False,
+        "add_N4Correction": True,
         "resolution_reduction_factors": [],
-        "num_samples": 1,
+        "samples": [1],
         "verbose": True,
+        "overwrite": True,
         "results_dir": results_dir,
     }
 
@@ -43,10 +54,10 @@ if __name__ == "__main__":
         #     "edge_gain": [ 0.4, 0.4, 0.4, 0.1, 0.2, 0.6, 0.8],
         # }},
         # 0.01 width fraction toooo small!
-        # {"GaussianBiasField":  {
-        #     "width_fraction": [0.1,  0.15, 0.2, 0.5,  0.1, 0.15, 0.2, 0.5,  0.1, 0.15, 0.2, 0.5,],
-        #     "edge_gain": [ 0.05, 0.05, 0.05, 0.05, 0.1, 0.1, 0.1, 0.1, 0.2, 0.2, 0.2, 0.2,],
-        # }},
+        {"GaussianBiasField":  {
+            "width_fraction": [0.1,  0.15, 0.2, 0.5,  0.1, 0.15, 0.2, 0.5,  0.1, 0.15, 0.2, 0.5,],
+            "edge_gain": [ 0.05, 0.05, 0.05, 0.05, 0.1, 0.1, 0.1, 0.1, 0.2, 0.2, 0.2, 0.2,],
+        }},
         # {"OffCenterAnisotropicGaussianBiasField":  {
         #     "width_x_fraction": [ 0.1, 0.15,  0.2, 0.35, 0.1, 0.15, 0.2,  0.35, 0.1,  0.15, 0.2,  0.35],
         #     "width_y_fraction": [0.15,  0.2, 0.35, 0.1,  0.2, 0.35, 0.1,  0.15, 0.35, 0.1, 0.15, 0.2, ],
@@ -56,43 +67,61 @@ if __name__ == "__main__":
         # }},
         # {
         #     "CartesianUndersamplingEquispacedZeroACS": {
-        #         "keep_fraction": [0.1, 0.25, 0.5, 0.75, 0.85, 0.9, 0.95, 0.98]
+        #         "keep_fraction": [0.95, 0.98],
         #     },
         # },
-        {
-            "AnisotropicLP": {
-                "kx_radius_fraction": [0.1, 0.25, 0.5, 0.75, 0.85, 0.9, 0.95, 1.0],
-                "ky_radius_fraction": [1.0, 0.95, 0.6, 0.85, 0.75, 0.5, 0.25, 0.1],
-            },
-        },
-        {
-            "HannTaperLP": {
-                "radius_fraction": [0.1, 0.1, 0.5, 0.5, 0.9, 0.9, 1.0, 1.0],  # 0.35,
-                "transition_fraction": [0.2, 0.6, 0.2, 0.6, 0.2, 0.6, 0.2, 0.6],  # 0.4,
-            }
-        },
-        {
-            "KaiserTaperLP": {
-                "radius_fraction": [0.1, 0.1, 0.5, 0.5, 0.9, 0.9, 1.0, 1.0],  # 0.35,
-                "transition_fraction": [0.2, 0.6, 0.2, 0.6, 0.2, 0.6, 0.2, 0.6],  # 0.4,
-                "beta": [8.6, 8.6, 8.6, 8.6, 2.0, 2.0, 8.6, 8.6],  # 8.6
-            }
-        },
-        {
-            "GaussianNoise": {
-                "sigma": [0.00001, 0.0001, 0.001, 0.01, 0.1, 1.0],  # [0.00001]
-            }
-        },
-        {
-            "IsotropicLP": {
-                "radius_fraction": [0.1, 0.25, 0.5, 0.75, 0.85, 0.9, 0.95, 1.0],  # 0.1
-            }
-        },
-        {
-            "RadialHighPassEmphasis": {
-                "alpha": [0.1, 0.2, 0.4, 0.5, 0.75, 0.9, 1.0],  # 0.4
-            }
-        },
+        # {
+        #     "CartesianUndersamplingVariableDensity": {
+        #         "keep_fraction": [0.95, 0.95, 0.98, 0.98],
+        #         "center_fraction": [0.1, 0.125, 0.1, 0.125],
+        #     },
+        # },
+        # {
+        #     "CartesianUndersamplingUniformRandom": {
+        #         "keep_fraction": [0.95, 0.95, 0.98, 0.98],
+        #         "center_fraction": [0.1, 0.125, 0.1, 0.125],
+        #     },
+        # },
+        # {
+        #     "CartesianUndersamplingEquispaced": {
+        #         "keep_fraction": [0.95, 0.95, 0.98, 0.98],
+        #         "center_fraction": [0.1, 0.125, 0.1, 0.125],
+        #     },
+        # },
+        # {
+        #     "AnisotropicLP": {
+        #         "kx_radius_fraction": [0.1, 0.25, 0.5, 0.75, 0.85, 0.9, 0.95, 1.0],
+        #         "ky_radius_fraction": [1.0, 0.95, 0.6, 0.85, 0.75, 0.5, 0.25, 0.1],
+        #     },
+        # },
+        # {
+        #     "HannTaperLP": {
+        #         "radius_fraction": [0.1, 0.1, 0.5, 0.5, 0.9, 0.9, 1.0, 1.0],  # 0.35,
+        #         "transition_fraction": [0.2, 0.6, 0.2, 0.6, 0.2, 0.6, 0.2, 0.6],  # 0.4,
+        #     }
+        # },
+        # {
+        #     "KaiserTaperLP": {
+        #         "radius_fraction": [0.15, 0.2, 0.15, 0.2, 0.25, 0.3, 0.25, 0.3],  # 0.35,
+        #         "transition_fraction": [0.2, 0.6, 0.2, 0.6, 0.2, 0.6, 0.2, 0.6],  # 0.4,
+        #         "beta": [8.6, 8.6, 8.6, 8.6, 2.0, 2.0, 8.6, 8.6],  # 8.6
+        #     }
+        # },
+        # {
+        #     "GaussianNoise": {
+        #         "sigma": [0.000005, 0.00001, 0.00002 ],  # [0.00001]
+        #     }
+        # },
+        # {
+        #     "IsotropicLP": {
+        #         "radius_fraction": [0.15, 0.2],  # 0.1
+        #     }
+        # },
+        # {
+        #     "RadialHighPassEmphasis": {
+        #         "alpha": [1.5, 2.0, 3.0, 5.0, 10.0],  # 0.4
+        #     }
+        # },
     ]
 
     for d_idx, distortion_dict in enumerate(distortions):

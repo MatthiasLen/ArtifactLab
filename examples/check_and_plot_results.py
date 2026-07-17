@@ -1,37 +1,45 @@
 import glob
 import os
+import sys
 
 import numpy as np
 from tifffile import imread
 import matplotlib.pyplot as plt
 
-result_folder = "/home/melanie.dohmen/ArtifactLab/reports/experiments_run1"
-# result_folder = "/home/melanie.dohmen/ArtifactLab/reports/test_params_AnisotropicLP"
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-result_file_names = glob.glob(os.path.join(result_folder, "*.tiff"))
+
+from mri_recon.utils.plot import get_metadata_from_filename
+
+# result_folder = "/home/melanie.dohmen/ArtifactLab/reports/experiments_run1"
+result_folder = "/home/melanie.dohmen/ArtifactLab/reports/test_params_GaussianNoise"
+#result_folder = "/home/melanie.dohmen/ArtifactLab/reports/test_params_RadialHighPassEmphasis"
+#result_folder = "/home/melanie.dohmen/ArtifactLab/reports/experiments_brain_slice0"
+# result_file_names = glob.glob(os.path.join(result_folder, "*.tiff"))
 
 
 distortion_names = [
-    "BaseDistortion",
-    "CartesianUndersamplingVariableDensity",
-    "CartesianUndersamplingUniformRandom",
-    "CartesianUndersamplingUniformRandomZeroACS",
-    "CartesianUndersamplingEquispaced",
-    "CartesianUndersamplingEquispacedZeroACS",
-    "PartialFourier",
-    "PhaseEncodeGhosting",
-    "SegmentedTranslationMotion",
-    "SegmentedRotationalMotion",
-    "TranslationMotion",
-    "RotationalMotion",
-    "OffCenterAnisotropicGaussianBiasField",
-    "GaussianBiasField",
-    "AnisotropicLP",
-    "HannTaperLP",
-    "KaiserTaperLP",
+    # "BaseDistortion",
+    # "CartesianUndersamplingVariableDensity",
+    # "CartesianUndersamplingUniformRandom",
+    # "CartesianUndersamplingUniformRandomZeroACS",
+    # "CartesianUndersamplingEquispaced",
+    # "CartesianUndersamplingEquispacedZeroACS",
+    # "PartialFourier",
+    # "PhaseEncodeGhosting",
+    # "SegmentedTranslationMotion",
+    # "SegmentedRotationalMotion",
+    # "TranslationMotion",
+    # "RotationalMotion",
+    #"OffCenterAnisotropicGaussianBiasField",
+    #"GaussianBiasField",
+    # "AnisotropicLP",
+    # "HannTaperLP",
+    # "KaiserTaperLP",
     "GaussianNoise",
-    "IsotropicLP",
-    "RadialHighPassEmphasis",
+    # "IsotropicLP",
+    #"RadialHighPassEmphasis",
+    #"ReduceResolution",
 ]
 
 reconstruction_names = [
@@ -48,13 +56,20 @@ reconstruction_names = [
     "unet-oasis-acceleration8",
     "unet-oasis-acceleration10",
 ]
+datasets = [
+    #"fastmri_knee",
+    #"oasis",
+    "fastmri_brain",
+    #"cmrxrecon",
+    #"fastmri_prostate",
+]
 
 samples = {
-    "fastmri_knee": ["1000000"],
-    "oasis": ["OAS1-0088-MR1"],
-    "fastmri_brain": ["AXFLAIR-200-6002452"],
-    "cmrxrecon": ["P001-cine-lax"],
-    "fastmri_prostate": ["AXT2-013", "AXT2-007"],
+    #"fastmri_knee": ["1000000", "1000007", "1000017"],
+    #"oasis": ["OAS1-0088-MR1"],
+    "fastmri_brain": [ "AXFLAIR-200-6002467"], #, "AXFLAIR-200-6002452","AXFLAIR-200-6002467", "AXFLAIR-200-6002512"],
+    #"cmrxrecon": ["P001-cine-lax"],
+    #"fastmri_prostate": ["AXT2-013", "AXT2-007"],
 }
 
 
@@ -166,12 +181,14 @@ if create_sample_summary:
                 reference_file_name = os.path.join(
                     result_folder, f"image_{dataset_name}_{sample_name}_reference.tiff"
                 )
+                
                 if os.path.exists(reference_file_name):
                     img = imread(reference_file_name).squeeze()
                     if len(img.shape) == 3:
                         print(f"Warning: image has 3 dimensions: {img.shape}")
                         print(reference_file_name)
                         img = img[0, ...]
+                    
                     axes[0, 0].imshow(img, cmap="gray")
                     axes[0, 0].set_title(f"{dataset_name} reference")
                     axes[0, 0].xaxis.set_visible(False)
@@ -414,32 +431,54 @@ if create_distortion_summary:
                     for r_idx, result_file_name in enumerate(results_for_distortion_sorted):
                         # split filename to get reconstruction name and corrected/uncorrected and parameters
                         # to add details to each result
-                        reconstruction = result_file_name.split("_")[-2]
-                        corrected = result_file_name.split("_")[-1].split(".")[0]
-                        parameters_str = result_file_name.split("_")[-3][len(distortion) :] + " "
-                        # example parameters: 'k=0.15w=2b=35 '
-                        parameters_indices = find_all(parameters_str, "=") + [len(parameters_str)]
-                        # example parameters_indices = [1, 7, 10] + [14]
-                        parameters_list = [
-                            parameters_str[i - 1 : parameters_indices[i_idx + 1] - 1]
-                            for i_idx, i in enumerate(parameters_indices[:-1])
-                        ]
-                        # example parameters_list = ['k=0.15', 'w=2', 'b=35']
-                        parameters = "\n" + " ".join(parameters_list)
+                        metadata = get_metadata_from_filename(result_file_name)
                         img = imread(result_file_name).squeeze()
+                        
                         if len(img.shape) == 3:
                             print(f"Warning: image has 3 dimensions: {img.shape}")
                             print(result_file_name)
                             img = img[0, ...]
-                        axes[r_idx // nr_cols, r_idx % nr_cols].imshow(img, cmap="gray")
-                        if r_idx < len(reference):
-                            axes[r_idx // nr_cols, r_idx % nr_cols].set_title(
-                                f"{distortion}\n{dataset_name}{sample_name}\n(reference)"
+                        if len(img.shape) != 2:
+                            print(f"Warning: image has {len(img.shape)} dimensions: {img.shape}")
+                            axes[r_idx // nr_cols, r_idx % nr_cols].text(
+                                0.5,
+                                0.5,
+                                "INVALID SHAPE: " + str(img.shape),
+                                transform=axes[r_idx // nr_cols, r_idx % nr_cols].transAxes,
+                                fontsize=12,
+                                color="red",
+                                ha="center",
                             )
+                            if r_idx < len(reference):
+                                axes[r_idx // nr_cols, r_idx % nr_cols].set_title(
+                                    f"{distortion}\n{dataset_name}{sample_name}\n(reference)"
+                                )
+                            else:
+                                axes[r_idx // nr_cols, r_idx % nr_cols].set_title(
+                                    f"{metadata['reconstruction_method']} (+{metadata['add']})\n{list(metadata['parameters'].values())}"
+                                )
                         else:
-                            axes[r_idx // nr_cols, r_idx % nr_cols].set_title(
-                                f"{reconstruction} ({corrected[0]}){parameters}"
-                            )
+                            min_value = np.min(img)
+                            max_value = np.max(img)
+                            mean_value = np.mean(img)
+                           
+                            axes[r_idx // nr_cols, r_idx % nr_cols].imshow(img, cmap="gray")
+                            if r_idx < len(reference):
+                                ref_mean = np.mean(img)
+                                ref_std = np.std(img)
+                                value_str = f"[{(min_value-ref_mean)/ref_std:.2f}-{(max_value-ref_mean)/ref_std:.2f}]({ref_mean:.2f}/{ref_std:.2f})"
+                                axes[r_idx // nr_cols, r_idx % nr_cols].set_title(
+                                    f"{metadata['dataset']} {metadata['sample_name']}\n(reference)\n{value_str}"
+                                )
+                            else:
+                                # if references are available, normalize to reference mean and std
+                                if len(reference) > 0:
+                                    value_str = f"[{(min_value-ref_mean)/ref_std:.2f}-{(max_value-ref_mean)/ref_std:.2f}]({mean_value:.2f})"
+                                else:
+                                    value_str = f"[{min_value:.2f}-{max_value:.2f}]({mean_value:.2f})"
+                                axes[r_idx // nr_cols, r_idx % nr_cols].set_title(
+                                    f"{metadata['reconstruction_method']} (+{metadata['add']})\n{list(metadata['parameters'].values())}\n{value_str}"
+                                )
                         axes[r_idx // nr_cols, r_idx % nr_cols].axis("off")
 
                     # remove axis for empty subplots
@@ -450,9 +489,80 @@ if create_distortion_summary:
                     plt.savefig(
                         os.path.join(
                             result_folder,
-                            f"summary_20260616_{dataset_name}_{sample_name}_{distortion}.png",
+                            f"summary_{dataset_name}_{sample_name}_{distortion}.png",
                         )
                     )
 
                 else:
                     print("No results for ", distortion)
+
+
+overview_cases = False
+
+if overview_cases:
+    print("Creating overview of all reference images for each dataset")
+    for dataset_name in datasets:
+        reference_images = sorted(glob.glob(os.path.join(result_folder, f"image_{dataset_name}_*_reference.tiff")))
+
+        # Split reference images into partitions of < 101 samples
+        partitions = [reference_images[i:i+100] for i in range(0, len(reference_images), 100)]
+        
+        for part_idx, partition_images in enumerate(partitions):
+            nr_rows = int(np.ceil(np.sqrt(len(partition_images))))        
+            nr_cols = int(np.ceil(len(partition_images) / nr_rows))
+
+            print("Processing partition ", part_idx + 1, "/", len(partitions), " for dataset ", dataset_name)
+            fig, axes = plt.subplots(
+                int(nr_rows),
+                int(nr_cols),
+                figsize=(3 * nr_cols, 3 * nr_rows),
+                squeeze=False,
+            )
+
+            for r_idx, result_file_name in enumerate(partition_images):
+                # split filename to get reconstruction name and corrected/uncorrected and parameters
+                # to add details to each result
+                metadata = get_metadata_from_filename(result_file_name)
+                img = imread(result_file_name).squeeze()
+                
+                if len(img.shape) == 3:
+                    print(f"Warning: image has 3 dimensions: {img.shape}")
+                    print(result_file_name)
+                    img = img[0, ...]
+                if len(img.shape) != 2:
+                    print(f"Warning: image has {len(img.shape)} dimensions: {img.shape}")
+                    axes[r_idx // nr_cols, r_idx % nr_cols].text(
+                        0.5,
+                        0.5,
+                        "INVALID SHAPE: " + str(img.shape),
+                        transform=axes[r_idx // nr_cols, r_idx % nr_cols].transAxes,
+                        fontsize=12,
+                        color="red",
+                        ha="center",
+                    )
+                    axes[r_idx // nr_cols, r_idx % nr_cols].set_title(
+                        f"{metadata['dataset']}\n{metadata['sample_name']}"
+                    )
+                else:
+                
+                    axes[r_idx // nr_cols, r_idx % nr_cols].imshow(img, cmap="gray")
+                    axes[r_idx // nr_cols, r_idx % nr_cols].set_title(
+                        f"{metadata['dataset']}\n{metadata['sample_name']}"
+                    )
+
+                axes[r_idx // nr_cols, r_idx % nr_cols].axis("off")
+
+            # Remove axes for empty subplots
+            for r_idx in range(len(partition_images), nr_rows * nr_cols):
+                axes[r_idx // nr_cols, r_idx % nr_cols].axis("off")
+
+            plt.tight_layout()
+            plt.savefig(
+                os.path.join(
+                    result_folder,
+                    f"overview_samples_{dataset_name}_part{part_idx+1}.png",
+                )
+            )
+            plt.close(fig)
+
+                

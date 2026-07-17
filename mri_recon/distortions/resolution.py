@@ -384,25 +384,37 @@ class ResolutionReductionByKspaceCropping:
         y_cropped = y[..., frac_diffw : w_lowres + frac_diffw, frac_diffh : h_lowres + frac_diffh]
         return y_cropped
 
-    def _upsample_back(self, y_cropped: torch.Tensor) -> torch.Tensor:
+    def _upsample_back(self, x: torch.Tensor) -> torch.Tensor:
+        
         # upsample back to original size
 
-        y_upsampled = torch.nn.functional.interpolate(
-            y_cropped, scale_factor=1 / self.crop_fraction, mode="nearest"
+        x = torch.nn.functional.interpolate(
+            x, scale_factor=1 / self.crop_fraction, mode="nearest"
         )
 
-        # center crop to original image size:
+        # pad to original image size if necessary
         if self.img_size is not None:
-            if (
-                y_upsampled.shape[-2] != self.img_size[0]
-                or y_upsampled.shape[-1] != self.img_size[1]
-            ):
-                frac_diffw = (y_upsampled.shape[-2] - self.img_size[0]) // 2
-                frac_diffh = (y_upsampled.shape[-1] - self.img_size[1]) // 2
-                y_upsampled = y_upsampled[
-                    ...,
-                    frac_diffw : frac_diffw + self.img_size[0],
-                    frac_diffh : frac_diffh + self.img_size[1],
-                ]
+            if x.shape[-2] < self.img_size[0]:
+                padw = (self.img_size[0] - x.shape[-2]) // 2
+                x = torch.nn.functional.pad(
+                    x, (0, 0, padw, self.img_size[0] - x.shape[-2] - padw)
+                )
+            if x.shape[-1] < self.img_size[1]:
+                padh = (self.img_size[1] - x.shape[-1]) // 2
+                x = torch.nn.functional.pad(
+                    x, (padh, self.img_size[1] - x.shape[-1] - padh, 0, 0)
+                )
+        # center crop to original image size if necessary
+        if self.img_size is not None:
+            if x.shape[-2] > self.img_size[0]:
+                frac_diffw = (x.shape[-2] - self.img_size[0]) // 2
+                startx = frac_diffw
+                endx = frac_diffw + self.img_size[0]
+                x = x[..., startx:endx, :]
+            if x.shape[-1] > self.img_size[1]:
+                frac_diffh = (x.shape[-1] - self.img_size[1]) // 2
+                starty = frac_diffh
+                endy = frac_diffh + self.img_size[1]
+                x = x[..., :, starty:endy]
 
-        return y_upsampled
+        return x
