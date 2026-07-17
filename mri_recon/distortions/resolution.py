@@ -385,25 +385,18 @@ class ResolutionReductionByKspaceCropping:
         return y_cropped
 
     def _upsample_back(self, x: torch.Tensor) -> torch.Tensor:
-        
         # upsample back to original size
 
-        x = torch.nn.functional.interpolate(
-            x, scale_factor=1 / self.crop_fraction, mode="nearest"
-        )
+        x = torch.nn.functional.interpolate(x, scale_factor=1 / self.crop_fraction, mode="nearest")
 
         # pad to original image size if necessary
         if self.img_size is not None:
             if x.shape[-2] < self.img_size[0]:
                 padw = (self.img_size[0] - x.shape[-2]) // 2
-                x = torch.nn.functional.pad(
-                    x, (0, 0, padw, self.img_size[0] - x.shape[-2] - padw)
-                )
+                x = torch.nn.functional.pad(x, (0, 0, padw, self.img_size[0] - x.shape[-2] - padw))
             if x.shape[-1] < self.img_size[1]:
                 padh = (self.img_size[1] - x.shape[-1]) // 2
-                x = torch.nn.functional.pad(
-                    x, (padh, self.img_size[1] - x.shape[-1] - padh, 0, 0)
-                )
+                x = torch.nn.functional.pad(x, (padh, self.img_size[1] - x.shape[-1] - padh, 0, 0))
         # center crop to original image size if necessary
         if self.img_size is not None:
             if x.shape[-2] > self.img_size[0]:

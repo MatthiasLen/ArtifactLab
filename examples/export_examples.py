@@ -3,11 +3,11 @@ import os
 import pandas as pd
 import sys
 
-from ast import literal_eval
 from tifffile import imread, imwrite
 from matplotlib import pyplot as plt
 
 from run_all import run_all
+
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 
@@ -60,7 +60,6 @@ from mri_recon.utils.plot import get_metadata_from_filename
 
 # selected examples for each property:
 properties = {
-    
     "property_01_pixel_resolution": {
         "example_001": {
             "dataset": "fastmri_knee",
@@ -323,7 +322,6 @@ properties = {
     #             "image_fastmri_knee_1000000_GaussianBiasFieldw=0.15e=0.05_conjugate-gradient_uncorrected_N4.tiff",
     #             "image_fastmri_knee_1000007_OffCenterAnisotropicGaussianBiasFieldw=0.2w=0.35c=0.15c=-0.1e=0.05_ram_uncorrected_N4.tiff",
     #             "image_fastmri_knee_1000007_OffCenterAnisotropicGaussianBiasFieldw=0.2w=0.35c=0.15c=-0.1e=0.05_zero-filled_uncorrected.tiff",
-                
     #         ],
     #     },
     #     "example_002": {
@@ -336,7 +334,7 @@ properties = {
     #     },
     # },
     "property_04_noise_level": {
-            "example_001": {
+        "example_001": {
             "dataset": "fastmri_knee",
             "sample_name": "1000000",
             "degraded": [
@@ -589,7 +587,7 @@ def create_example(filename, results_dir):
     sample_list = sorted(glob.glob(sample_name_globs[metadata["dataset"]]))
     sample_list = [os.path.basename(s).replace("_", "-") for s in sample_list]
     if metadata["dataset"] == "cmrxrecon":
-        sample_list = [s+"-cine-lax" for s in sample_list]
+        sample_list = [s + "-cine-lax" for s in sample_list]
     # find metadata["sample_name"] as substring in sample_list items:
     sample_index = None
     for i, s in enumerate(sample_list):
@@ -598,7 +596,9 @@ def create_example(filename, results_dir):
             break
 
     if sample_index is None:
-        print(f"Warning: sample_name {metadata['sample_name']} not found in sample_list for dataset {metadata['dataset']}.")
+        print(
+            f"Warning: sample_name {metadata['sample_name']} not found in sample_list for dataset {metadata['dataset']}."
+        )
 
     factors = []
     parameters = metadata["parameters"]
@@ -607,14 +607,18 @@ def create_example(filename, results_dir):
         factors = [metadata["parameters"]["factor"]]
         parameters = {}
         distortions = []
-    
+
     add_N4Correction = False
     if "N4" in metadata["add"]:
-        if metadata["distortion"] not in ["GaussianBiasField", "OffCenterAnisotropicGaussianBiasField"]:
-            print("Warning: setting N4 correction for a distortion that is not a bias field distortion. This may not be necessary.")
+        if metadata["distortion"] not in [
+            "GaussianBiasField",
+            "OffCenterAnisotropicGaussianBiasField",
+        ]:
+            print(
+                "Warning: setting N4 correction for a distortion that is not a bias field distortion. This may not be necessary."
+            )
         add_N4Correction = True
-    
-    
+
     config = {
         "data": {metadata["dataset"]: datapaths[metadata["dataset"]]},
         "distortions": distortions,
@@ -632,8 +636,6 @@ def create_example(filename, results_dir):
     print(f"Creating example for filename {filename}")
     run_all(config)
     print("... done")
-
-
 
 
 result_path = "/home/melanie.dohmen/ArtifactLab/reports/experiments_run1/"
@@ -659,14 +661,17 @@ for property_name, property_examples in properties.items():
         example_path = os.path.join(property_path, example_name)
         os.makedirs(example_path, exist_ok=True)
 
-
         # check if images exist, if not create them
         for i, degraded_image in enumerate(example_data["degraded"]):
-            degraded_image_filename = f"image_{example_data['dataset']}_{example_data['sample_name']}_{degraded_image}"
+            degraded_image_filename = (
+                f"image_{example_data['dataset']}_{example_data['sample_name']}_{degraded_image}"
+            )
             if not os.path.exists(os.path.join(result_path, degraded_image_filename)):
                 create_example(degraded_image_filename, result_path)
 
-        reference_filename = f"image_{example_data['dataset']}_{example_data['sample_name']}_reference.tiff"
+        reference_filename = (
+            f"image_{example_data['dataset']}_{example_data['sample_name']}_reference.tiff"
+        )
         if not os.path.exists(os.path.join(result_path, reference_filename)):
             create_example(reference_filename, result_path)
 
@@ -676,7 +681,6 @@ for property_name, property_examples in properties.items():
 
         imwrite(new_reference_image_path, imread(old_reference_image_path))
         # Code to save the reference image using example_data["reference"]
-
 
         metadata = {
             "property": property_name,
@@ -699,7 +703,9 @@ for property_name, property_examples in properties.items():
 
         # Save degraded images
         for i, degraded_image in enumerate(example_data["degraded"]):
-            degraded_image_filename = f"image_{example_data['dataset']}_{example_data['sample_name']}_{degraded_image}"
+            degraded_image_filename = (
+                f"image_{example_data['dataset']}_{example_data['sample_name']}_{degraded_image}"
+            )
             old_degraded_image_path = os.path.join(result_path, degraded_image_filename)
             new_degraded_image_path = os.path.join(example_path, f"degraded_{i + 1}.tiff")
             imwrite(new_degraded_image_path, imread(old_degraded_image_path))
@@ -721,8 +727,12 @@ for property_name, property_examples in properties.items():
             if deg_img.ndim == 2:
                 axes[e_idx, i + 1].imshow(deg_img, cmap="gray")
             else:
-                print(f"Warning: Degraded image {new_degraded_image_path} is not 2D, cannot display.")
-            axes[e_idx, i + 1].set_title(f"Degraded {i + 1}\n{metadata['distortion']}\n{metadata['reconstruction_method']}\n{list(metadata['parameters'].values())}\n{metadata['add']}")
+                print(
+                    f"Warning: Degraded image {new_degraded_image_path} is not 2D, cannot display."
+                )
+            axes[e_idx, i + 1].set_title(
+                f"Degraded {i + 1}\n{metadata['distortion']}\n{metadata['reconstruction_method']}\n{list(metadata['parameters'].values())}\n{metadata['add']}"
+            )
             axes[e_idx, i + 1].set_axis_off()
 
     plt.tight_layout()

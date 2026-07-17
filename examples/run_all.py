@@ -11,13 +11,15 @@ import SimpleITK as sitk
 import numpy as np
 import tqdm
 
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
 from datetime import datetime
 import deepinv as dinv
 import torch
+from torch.utils.data import DataLoader, Sampler
 import yaml
 from tifffile import imwrite, imread
+
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 
 from mri_recon.distortions import (
     BaseDistortion,
@@ -40,6 +42,17 @@ from mri_recon.utils import (
     _kspace_to_log_magnitude,
     convert_image_for_save,
 )
+
+
+class MySampler(Sampler):
+    def __init__(self, indices):
+        self.indices = indices
+
+    def __iter__(self):
+        return iter(self.indices)
+
+    def __len__(self):
+        return len(self.indices)
 
 
 def get_measurement_sample(
@@ -111,7 +124,6 @@ def get_measurement_sample(
             and "coil_maps" in sample_batch[2]
             else None
         )
-        
 
         # select the center timepoint in order to simplify the evaluation of the reconstruction algorithms
         center_time_point = y.shape[2] // 2
@@ -148,14 +160,17 @@ def run_all(config) -> None:
     os.makedirs(config["results_dir"], exist_ok=True)
 
     if "samples" in config and config["samples"] is not None:
-        config["num_samples"] = max(config["samples"])
-    
+        config["num_samples"] = len(config["samples"])
+
     elif "num_samples" in config and config["num_samples"] is not None:
         config["samples"] = list(range(0, config["num_samples"]))
     else:
         print("No samples or num_samples specified in config. Running on all samples.")
         config["samples"] = None
         config["num_samples"] = None
+
+    print("debug: config['samples']: ", config["samples"])
+    print("debug: config['num_samples']: ", config["num_samples"])
 
     # set up device
     device = dinv.utils.get_device()
@@ -173,7 +188,7 @@ def run_all(config) -> None:
         elif dataset_name == "fastmri_brain":
             dataset = dinv.datasets.FastMRISliceDataset(
                 str(dataset_rootdir),
-                slice_index="middle",
+                slice_index=0,
                 transform=dinv.datasets.MRISliceTransform(
                     estimate_coil_maps=True,
                     acs=15,
@@ -192,18 +207,19 @@ def run_all(config) -> None:
         else:
             raise NotImplementedError(f"Invalid dataset: {dataset_name}")
 
-        # loop through samples of dataset
-        for i, batch in enumerate(iter(torch.utils.data.DataLoader(dataset))):
+        if config["samples"] is not None:
+            sampler = MySampler(config["samples"])
+            loader = DataLoader(dataset, sampler=sampler)
+        else:
+            loader = DataLoader(dataset)
 
+        for i, batch in enumerate(iter(loader)):
             # exit loop if we have processed the specified number of samples
-            if (config["num_samples"] is not None) and (i not in config["samples"]):
-                continue
-        
-            print(f"Processing sample {i}...")
-            
-            
+            if (config["num_samples"] is not None) and (i >= config["num_samples"]):
+                break
 
-            print(f"{dataset_name} sample {i}...")
+            print(f"Processing {dataset_name} sample {i}...")
+
             x_reference, y, y_centered, coil_maps, sample_name = get_measurement_sample(
                 sample_batch=batch,
                 dataset_name=dataset_name,
@@ -212,7 +228,11 @@ def run_all(config) -> None:
 
             if sample_name is None:
                 if dataset_name == "fastmri_knee" or dataset_name == "fastmri_brain":
-                    fname, _, _ = dataset.samples[i]
+                    if config["samples"] is not None and i < len(config["samples"]):
+                        sample_index = config["samples"][i]
+                    else:
+                        sample_index = i
+                    fname, _, _ = dataset.samples[sample_index]
                     sample_name = os.path.basename(fname).split(".")[0]
                     sample_name = (
                         sample_name.replace("brain_", "")
@@ -222,13 +242,21 @@ def run_all(config) -> None:
                         .replace("_", "-")
                     )
                 elif dataset_name == "cmrxrecon":
-                    fname, _, _ = dataset.samples[i]
+                    if config["samples"] is not None and i < len(config["samples"]):
+                        sample_index = config["samples"][i]
+                    else:
+                        sample_index = i
+                    fname, _, _ = dataset.samples[sample_index]
                     patient_id = os.path.basename(os.path.dirname(fname))
                     sample_name = (
                         f"{patient_id}-{os.path.basename(fname).split('.')[0].replace('_', '-')}"
                     )
                 else:
-                    sample_name = f"sample{i}"
+                    if config["samples"] is not None and i < len(config["samples"]):
+                        sample_index = config["samples"][i]
+                    else:
+                        sample_index = i
+                    sample_name = f"sample{sample_index}"
 
             print("sample_name: ", sample_name)
 
@@ -286,21 +314,24 @@ def run_all(config) -> None:
                     )
 
                     for reconstructor_name in config["reconstruction_algorithms"]:
-
                         corrected_reconstructed_image_filename = os.path.join(
-                                            config["results_dir"],
-                                            f"image_{dataset_name}_{sample_name}_{distortion_name_with_params}_{reconstructor_name}_corrected.tiff",
-                                        )
+                            config["results_dir"],
+                            f"image_{dataset_name}_{sample_name}_{distortion_name_with_params}_{reconstructor_name}_corrected.tiff",
+                        )
                         uncorrected_reconstructed_image_filename = os.path.join(
-                                            config["results_dir"],
-                                            f"image_{dataset_name}_{sample_name}_{distortion_name_with_params}_{reconstructor_name}_uncorrected.tiff",
-                                        )
+                            config["results_dir"],
+                            f"image_{dataset_name}_{sample_name}_{distortion_name_with_params}_{reconstructor_name}_uncorrected.tiff",
+                        )
 
                         # only run on reconstructors, that use the fastmri-like k-space
-                        if (not uses_oasis_centered_path(reconstructor_name)) and (config["overwrite"] or
-                            not os.path.exists(corrected_reconstructed_image_filename)) and (   
-                            not os.path.exists(uncorrected_reconstructed_image_filename)):
-
+                        if (
+                            (not uses_oasis_centered_path(reconstructor_name))
+                            and (
+                                config["overwrite"]
+                                or not os.path.exists(corrected_reconstructed_image_filename)
+                            )
+                            and (not os.path.exists(uncorrected_reconstructed_image_filename))
+                        ):
                             print(f"\t\t{reconstructor_name} ...")
                             start = datetime.now()
                             if compatible_dataset_with_reconstructor(
@@ -313,7 +344,6 @@ def run_all(config) -> None:
                                     verbose=config["verbose"],
                                 ).to(device)
 
-                                
                                 # actual reconstruction with the selected reconstructor
                                 try:
                                     x_uncorrected = reconstructor(y_distorted, physics_clean)
@@ -332,7 +362,7 @@ def run_all(config) -> None:
 
                                     # save reconstructed images
                                     imwrite(
-                                        uncorrected_reconstructed_image_filename,                                        
+                                        uncorrected_reconstructed_image_filename,
                                         convert_image_for_save(x_uncorrected),
                                     )
                                     imwrite(
@@ -383,25 +413,25 @@ def run_all(config) -> None:
                         _kspace_to_log_magnitude(y_distorted).numpy(),
                     )
 
-
                     physics_distorted = OasisCenteredFFTPhysics(distortion)
 
                     for reconstructor_name in config["reconstruction_algorithms"]:
-
                         corrected_reconstructed_image_filename = os.path.join(
-                                            config["results_dir"],
-                                            f"image_{dataset_name}_{sample_name}_{distortion_name_with_params}_{reconstructor_name}_corrected.tiff",
-                                        )
+                            config["results_dir"],
+                            f"image_{dataset_name}_{sample_name}_{distortion_name_with_params}_{reconstructor_name}_corrected.tiff",
+                        )
                         uncorrected_reconstructed_image_filename = os.path.join(
-                                            config["results_dir"],
-                                            f"image_{dataset_name}_{sample_name}_{distortion_name_with_params}_{reconstructor_name}_uncorrected.tiff",
-                                        )
+                            config["results_dir"],
+                            f"image_{dataset_name}_{sample_name}_{distortion_name_with_params}_{reconstructor_name}_uncorrected.tiff",
+                        )
                         # skip all reconstructors, that don't use the oasis-centered path
-                        if (uses_oasis_centered_path(reconstructor_name) and
-                            (config["overwrite"] or
-                            (not os.path.exists(corrected_reconstructed_image_filename) and
-                            not os.path.exists(uncorrected_reconstructed_image_filename)))):
-
+                        if uses_oasis_centered_path(reconstructor_name) and (
+                            config["overwrite"]
+                            or (
+                                not os.path.exists(corrected_reconstructed_image_filename)
+                                and not os.path.exists(uncorrected_reconstructed_image_filename)
+                            )
+                        ):
                             print(f"\t\t{reconstructor_name} ...")
                             start = datetime.now()
                             if compatible_dataset_with_reconstructor(
@@ -414,7 +444,6 @@ def run_all(config) -> None:
                                     verbose=config["verbose"],
                                 ).to(device)
 
-                                
                                 # actual reconstruction with the algo being evaluated
                                 try:
                                     x_uncorrected = reconstructor(y_distorted, physics_clean)
@@ -457,12 +486,27 @@ def run_all(config) -> None:
 
             if config["add_N4Correction"]:
                 reconstructed_bias_field_images = glob.glob(
-                    os.path.join(config["results_dir"], "*BiasField*corrected.tiff")
+                    os.path.join(
+                        config["results_dir"],
+                        f"image_{dataset_name}_{sample_name}_GaussianBiasField*corrected.tiff",
+                    )
+                )
+                reconstructed_offcenter_bias_field_images = glob.glob(
+                    os.path.join(
+                        config["results_dir"],
+                        f"image_{dataset_name}_{sample_name}_OffCenterAnisotropicGaussianBiasField*corrected.tiff",
+                    )
                 )
                 reference_images = glob.glob(
-                    os.path.join(config["results_dir"], "image*reference.tiff")
+                    os.path.join(
+                        config["results_dir"], f"image_{dataset_name}_{sample_name}_*reference.tiff"
+                    )
                 )
-                images_for_n4_correction = reconstructed_bias_field_images + reference_images
+                images_for_n4_correction = (
+                    reconstructed_bias_field_images
+                    + reconstructed_offcenter_bias_field_images
+                    + reference_images
+                )
                 with tqdm.tqdm(
                     total=len(images_for_n4_correction), desc="Applying N4 Bias Field Correction"
                 ) as pbar:
@@ -502,7 +546,7 @@ def run_all(config) -> None:
                 print(f"Applying resolution reduction with factor {factor}")
 
                 kspace_crop = ResolutionReductionByKspaceCropping(
-                    crop_fraction=1.0 / factor, img_size=x_reference.shape[-2:]
+                    crop_fraction=1.0 / float(factor), img_size=x_reference.shape[-2:]
                 )
                 y_distorted = kspace_crop._apply_crop(y)
 
@@ -511,10 +555,10 @@ def run_all(config) -> None:
                 if coil_maps is not None:
                     coil_maps_channels = torch.view_as_real(coil_maps)
                     coil_maps_channels_lowres_realnn = torch.nn.functional.interpolate(
-                        coil_maps_channels[..., 0], scale_factor=1/factor, mode="nearest"
+                        coil_maps_channels[..., 0], scale_factor=1 / factor, mode="nearest"
                     )
                     coil_maps_channels_lowres_imagnn = torch.nn.functional.interpolate(
-                        coil_maps_channels[..., 1], scale_factor=1/factor, mode="nearest"
+                        coil_maps_channels[..., 1], scale_factor=1 / factor, mode="nearest"
                     )
                     coil_maps_lowresnn = torch.view_as_complex(
                         torch.stack(
@@ -557,9 +601,12 @@ def run_all(config) -> None:
                             try:
                                 x_corrected = reconstructor(y_distorted, physics_distorted)
 
+                                print(f" reconstructed image size: {x_corrected.shape[-2:]}")
+
                                 # restore original image size from reconstructed image by upsampling (and cropping if necessary)
                                 x_corrected = kspace_crop._upsample_back(x_corrected)
 
+                                print(f" restored image size: {x_corrected.shape[-2:]}")
                                 # save reconstructed images
                                 imwrite(
                                     os.path.join(

@@ -12,11 +12,11 @@ if __name__ == "__main__":
     # create config:
     config = {
         "data": {
-            #"fastmri_knee": "/home/melanie.dohmen/ArtifactLab/data/singlecoil_val",
-            #"oasis": "/home/melanie.dohmen/ArtifactLab/data/oasis",
+            # "fastmri_knee": "/home/melanie.dohmen/ArtifactLab/data/singlecoil_val",
+            # "oasis": "/home/melanie.dohmen/ArtifactLab/data/oasis",
             "fastmri_brain": "/home/melanie.dohmen/ArtifactLab/data/fastMRI_multicoil_brain_train0",
-            #"cmrxrecon": "/home/melanie.dohmen/ArtifactLab/data/CMRxRecon",
-            #"fastmri_prostate": "/home/melanie.dohmen/ArtifactLab/data/fastMRI_prostate_T2_IDS_001_020",
+            # "cmrxrecon": "/home/melanie.dohmen/ArtifactLab/data/CMRxRecon",
+            # "fastmri_prostate": "/home/melanie.dohmen/ArtifactLab/data/fastMRI_prostate_T2_IDS_001_020",
         },
         "distortions": [
             {
@@ -54,10 +54,38 @@ if __name__ == "__main__":
         #     "edge_gain": [ 0.4, 0.4, 0.4, 0.1, 0.2, 0.6, 0.8],
         # }},
         # 0.01 width fraction toooo small!
-        {"GaussianBiasField":  {
-            "width_fraction": [0.1,  0.15, 0.2, 0.5,  0.1, 0.15, 0.2, 0.5,  0.1, 0.15, 0.2, 0.5,],
-            "edge_gain": [ 0.05, 0.05, 0.05, 0.05, 0.1, 0.1, 0.1, 0.1, 0.2, 0.2, 0.2, 0.2,],
-        }},
+        {
+            "GaussianBiasField": {
+                "width_fraction": [
+                    0.1,
+                    0.15,
+                    0.2,
+                    0.5,
+                    0.1,
+                    0.15,
+                    0.2,
+                    0.5,
+                    0.1,
+                    0.15,
+                    0.2,
+                    0.5,
+                ],
+                "edge_gain": [
+                    0.05,
+                    0.05,
+                    0.05,
+                    0.05,
+                    0.1,
+                    0.1,
+                    0.1,
+                    0.1,
+                    0.2,
+                    0.2,
+                    0.2,
+                    0.2,
+                ],
+            }
+        },
         # {"OffCenterAnisotropicGaussianBiasField":  {
         #     "width_x_fraction": [ 0.1, 0.15,  0.2, 0.35, 0.1, 0.15, 0.2,  0.35, 0.1,  0.15, 0.2,  0.35],
         #     "width_y_fraction": [0.15,  0.2, 0.35, 0.1,  0.2, 0.35, 0.1,  0.15, 0.35, 0.1, 0.15, 0.2, ],

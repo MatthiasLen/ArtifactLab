@@ -13,8 +13,8 @@ from mri_recon.utils.plot import get_metadata_from_filename
 
 # result_folder = "/home/melanie.dohmen/ArtifactLab/reports/experiments_run1"
 result_folder = "/home/melanie.dohmen/ArtifactLab/reports/test_params_GaussianNoise"
-#result_folder = "/home/melanie.dohmen/ArtifactLab/reports/test_params_RadialHighPassEmphasis"
-#result_folder = "/home/melanie.dohmen/ArtifactLab/reports/experiments_brain_slice0"
+# result_folder = "/home/melanie.dohmen/ArtifactLab/reports/test_params_RadialHighPassEmphasis"
+# result_folder = "/home/melanie.dohmen/ArtifactLab/reports/experiments_brain_slice0"
 # result_file_names = glob.glob(os.path.join(result_folder, "*.tiff"))
 
 
@@ -31,15 +31,15 @@ distortion_names = [
     # "SegmentedRotationalMotion",
     # "TranslationMotion",
     # "RotationalMotion",
-    #"OffCenterAnisotropicGaussianBiasField",
-    #"GaussianBiasField",
+    # "OffCenterAnisotropicGaussianBiasField",
+    # "GaussianBiasField",
     # "AnisotropicLP",
     # "HannTaperLP",
     # "KaiserTaperLP",
     "GaussianNoise",
     # "IsotropicLP",
-    #"RadialHighPassEmphasis",
-    #"ReduceResolution",
+    # "RadialHighPassEmphasis",
+    # "ReduceResolution",
 ]
 
 reconstruction_names = [
@@ -57,19 +57,21 @@ reconstruction_names = [
     "unet-oasis-acceleration10",
 ]
 datasets = [
-    #"fastmri_knee",
-    #"oasis",
+    # "fastmri_knee",
+    # "oasis",
     "fastmri_brain",
-    #"cmrxrecon",
-    #"fastmri_prostate",
+    # "cmrxrecon",
+    # "fastmri_prostate",
 ]
 
 samples = {
-    #"fastmri_knee": ["1000000", "1000007", "1000017"],
-    #"oasis": ["OAS1-0088-MR1"],
-    "fastmri_brain": [ "AXFLAIR-200-6002467"], #, "AXFLAIR-200-6002452","AXFLAIR-200-6002467", "AXFLAIR-200-6002512"],
-    #"cmrxrecon": ["P001-cine-lax"],
-    #"fastmri_prostate": ["AXT2-013", "AXT2-007"],
+    # "fastmri_knee": ["1000000", "1000007", "1000017"],
+    # "oasis": ["OAS1-0088-MR1"],
+    "fastmri_brain": [
+        "AXFLAIR-200-6002467"
+    ],  # , "AXFLAIR-200-6002452","AXFLAIR-200-6002467", "AXFLAIR-200-6002512"],
+    # "cmrxrecon": ["P001-cine-lax"],
+    # "fastmri_prostate": ["AXT2-013", "AXT2-007"],
 }
 
 
@@ -181,14 +183,14 @@ if create_sample_summary:
                 reference_file_name = os.path.join(
                     result_folder, f"image_{dataset_name}_{sample_name}_reference.tiff"
                 )
-                
+
                 if os.path.exists(reference_file_name):
                     img = imread(reference_file_name).squeeze()
                     if len(img.shape) == 3:
                         print(f"Warning: image has 3 dimensions: {img.shape}")
                         print(reference_file_name)
                         img = img[0, ...]
-                    
+
                     axes[0, 0].imshow(img, cmap="gray")
                     axes[0, 0].set_title(f"{dataset_name} reference")
                     axes[0, 0].xaxis.set_visible(False)
@@ -433,7 +435,7 @@ if create_distortion_summary:
                         # to add details to each result
                         metadata = get_metadata_from_filename(result_file_name)
                         img = imread(result_file_name).squeeze()
-                        
+
                         if len(img.shape) == 3:
                             print(f"Warning: image has 3 dimensions: {img.shape}")
                             print(result_file_name)
@@ -461,21 +463,23 @@ if create_distortion_summary:
                             min_value = np.min(img)
                             max_value = np.max(img)
                             mean_value = np.mean(img)
-                           
+
                             axes[r_idx // nr_cols, r_idx % nr_cols].imshow(img, cmap="gray")
                             if r_idx < len(reference):
                                 ref_mean = np.mean(img)
                                 ref_std = np.std(img)
-                                value_str = f"[{(min_value-ref_mean)/ref_std:.2f}-{(max_value-ref_mean)/ref_std:.2f}]({ref_mean:.2f}/{ref_std:.2f})"
+                                value_str = f"[{(min_value - ref_mean) / ref_std:.2f}-{(max_value - ref_mean) / ref_std:.2f}]({ref_mean:.2f}/{ref_std:.2f})"
                                 axes[r_idx // nr_cols, r_idx % nr_cols].set_title(
                                     f"{metadata['dataset']} {metadata['sample_name']}\n(reference)\n{value_str}"
                                 )
                             else:
                                 # if references are available, normalize to reference mean and std
                                 if len(reference) > 0:
-                                    value_str = f"[{(min_value-ref_mean)/ref_std:.2f}-{(max_value-ref_mean)/ref_std:.2f}]({mean_value:.2f})"
+                                    value_str = f"[{(min_value - ref_mean) / ref_std:.2f}-{(max_value - ref_mean) / ref_std:.2f}]({mean_value:.2f})"
                                 else:
-                                    value_str = f"[{min_value:.2f}-{max_value:.2f}]({mean_value:.2f})"
+                                    value_str = (
+                                        f"[{min_value:.2f}-{max_value:.2f}]({mean_value:.2f})"
+                                    )
                                 axes[r_idx // nr_cols, r_idx % nr_cols].set_title(
                                     f"{metadata['reconstruction_method']} (+{metadata['add']})\n{list(metadata['parameters'].values())}\n{value_str}"
                                 )
@@ -502,16 +506,25 @@ overview_cases = False
 if overview_cases:
     print("Creating overview of all reference images for each dataset")
     for dataset_name in datasets:
-        reference_images = sorted(glob.glob(os.path.join(result_folder, f"image_{dataset_name}_*_reference.tiff")))
+        reference_images = sorted(
+            glob.glob(os.path.join(result_folder, f"image_{dataset_name}_*_reference.tiff"))
+        )
 
         # Split reference images into partitions of < 101 samples
-        partitions = [reference_images[i:i+100] for i in range(0, len(reference_images), 100)]
-        
+        partitions = [reference_images[i : i + 100] for i in range(0, len(reference_images), 100)]
+
         for part_idx, partition_images in enumerate(partitions):
-            nr_rows = int(np.ceil(np.sqrt(len(partition_images))))        
+            nr_rows = int(np.ceil(np.sqrt(len(partition_images))))
             nr_cols = int(np.ceil(len(partition_images) / nr_rows))
 
-            print("Processing partition ", part_idx + 1, "/", len(partitions), " for dataset ", dataset_name)
+            print(
+                "Processing partition ",
+                part_idx + 1,
+                "/",
+                len(partitions),
+                " for dataset ",
+                dataset_name,
+            )
             fig, axes = plt.subplots(
                 int(nr_rows),
                 int(nr_cols),
@@ -524,7 +537,7 @@ if overview_cases:
                 # to add details to each result
                 metadata = get_metadata_from_filename(result_file_name)
                 img = imread(result_file_name).squeeze()
-                
+
                 if len(img.shape) == 3:
                     print(f"Warning: image has 3 dimensions: {img.shape}")
                     print(result_file_name)
@@ -544,7 +557,6 @@ if overview_cases:
                         f"{metadata['dataset']}\n{metadata['sample_name']}"
                     )
                 else:
-                
                     axes[r_idx // nr_cols, r_idx % nr_cols].imshow(img, cmap="gray")
                     axes[r_idx // nr_cols, r_idx % nr_cols].set_title(
                         f"{metadata['dataset']}\n{metadata['sample_name']}"
@@ -560,9 +572,7 @@ if overview_cases:
             plt.savefig(
                 os.path.join(
                     result_folder,
-                    f"overview_samples_{dataset_name}_part{part_idx+1}.png",
+                    f"overview_samples_{dataset_name}_part{part_idx + 1}.png",
                 )
             )
             plt.close(fig)
-
-                
