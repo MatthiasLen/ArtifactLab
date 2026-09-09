@@ -1,0 +1,100 @@
+data:
+  "fastmri_knee": "/path/to/fastmri/singlecoil_val"
+  "oasis": "/path/to/oasis"
+  "fastmri_brain": "/path/to/fastmri/fastMRI_multicoil_brain_test"
+  "cmrxrecon": "/path/to/CMRxRecon"
+  "fastmri_prostate": "/path/to/fastmri/fastMRI_prostate_T2_IDS_001_020"
+
+distortions:
+    - "BaseDistortion": {}
+    - "CartesianUndersamplingVariableDensity":
+        "keep_fraction": 0.75
+        "center_fraction": 0.125
+    - "CartesianUndersamplingUniformRandom":
+        "keep_fraction": 0.75
+        "center_fraction": 0.125
+    - "CartesianUndersamplingUniformRandomZeroACS":
+        "keep_fraction": 0.95
+    - "CartesianUndersamplingEquispaced":
+        "keep_fraction": 0.75
+        "center_fraction": 0.125
+    - "CartesianUndersamplingEquispacedZeroACS":
+        "keep_fraction": 0.95
+    - "PartialFourier":
+        "side": "high"
+    - "PhaseEncodeGhosting":
+        "line_period": 2,
+        "line_offset": 1,
+        #"phase_error_radians": torch.pi / 2,
+        "phase_error_degrees": 90.0
+        "corrupted_line_scale": 1.0
+    - "SegmentedTranslationMotion":
+        #"shift_x_pixels": [0.0, 20.0, 50.0, -50.0]
+        #"shift_y_pixels": [0.0, 10.0, -20.0, 20.0]
+        "shift_x_pixels": [2.0, 0.0, -3.0, -5.0]
+        "shift_y_pixels": [-1.0, 1.0, 2.0, 3.0]
+    - "SegmentedRotationalMotion":
+        #"angle_radians": [0.0, torch.pi / 20, -torch.pi / 24, torch.pi / 16]
+        "angle_degrees": [0.0, 2.0, -1.0, -3]
+    - "TranslationMotion":
+        #"shift_x_pixels": 60
+        #"shift_y_pixels": 10
+        "shift_x_pixels": 5
+        "shift_y_pixels": 2
+    - "RotationalMotion":
+        # angle_radians=torch.pi / 6
+        # angle_degrees: 60
+        "angle_degrees": 2.0
+    # - "OffCenterAnisotropicGaussianKspaceBiasField":
+    #     "width_x_fraction": 0.2
+    #     "width_y_fraction": 0.35
+    #     "center_x_fraction": 0.15
+    #     "center_y_fraction": -0.1
+    #     "edge_gain": 0.3
+    - "OffCenterAnisotropicGaussianBiasField":
+        "width_x_fraction": 0.2
+        "width_y_fraction": 0.35
+        "center_x_fraction": 0.15
+        "center_y_fraction": -0.1
+        "edge_gain": 0.05
+    # - "GaussianKspaceBiasField":
+    #     "width_fraction": 0.35
+    #     "edge_gain": 0.4
+    - "GaussianBiasField":
+        "width_fraction": 0.15
+        "edge_gain": 0.05
+    - "AnisotropicLP":
+        "kx_radius_fraction": 1.0,
+        "ky_radius_fraction": 0.25,
+    - "HannTaperLP":
+        "radius_fraction": 0.35,
+        "transition_fraction": 0.4,
+    - "KaiserTaperLP":
+        "radius_fraction": 0.35,
+        "transition_fraction": 0.4,
+        "beta": 8.6,
+    - "GaussianNoise":
+        "sigma": 0.00001
+    - "IsotropicLP":
+        "radius_fraction": 0.1
+    - "RadialHighPassEmphasis":
+        "alpha": 0.4
+reconstruction_algorithms:
+    - "zero-filled"
+    - "conjugate-gradient"
+    #- "ram"
+    #- "dip"
+    #- "tv-pgd"
+    #- "wavelet-fista"
+    #- "tv-fista"
+    #- "tv-pdhg"
+    - "unet-fastmri"
+    - "unet-oasis-acceleration4"
+    #- "unet-oasis-acceleration8"
+    #- "unet-oasis-acceleration10"
+# additionally performs N4 Bias Field correction on reference images and BiasField-distorted and reconstructed ones
+add_N4Correction: false
+num_samples: 1
+verbose: true
+overwrite: false
+results_dir: "/home/melanie.dohmen/ArtifactLab/reports/experiments_run1"

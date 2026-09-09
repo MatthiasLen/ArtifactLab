@@ -15,204 +15,133 @@ import deepinv as dinv
 import torch
 
 from mri_recon.distortions import (
-    AnisotropicResolutionReduction,
+    choose_distortion_with_params,
     BaseDistortion,
-    CartesianUndersampling,
     DistortedKspaceMultiCoilMRI,
-    GaussianKspaceBiasField,
-    GaussianNoiseDistortion,
-    HannTaperResolutionReduction,
-    IsotropicResolutionReduction,
-    KaiserTaperResolutionReduction,
-    OffCenterAnisotropicGaussianKspaceBiasField,
-    PartialFourierDistortion,
-    PhaseEncodeGhostingDistortion,
-    RadialHighPassEmphasisDistortion,
-    RotationalMotionDistortion,
-    SegmentedRotationalMotionDistortion,
-    SegmentedTranslationMotionDistortion,
-    TranslationMotionDistortion,
+    image_to_shifted_kspace,
 )
 from mri_recon.reconstruction import (
     ConjugateGradientReconstructor,
-    EXPLICIT_UNET_ALGORITHMS,
-    OASISSinglecoilUnetReconstructor,
     choose_reconstructor,
     uses_oasis_centered_path,
-    validate_algorithm_dataset_compatibility,
+    compatible_dataset_with_reconstructor,
+    EXPLICIT_UNET_ALGORITHMS,
 )
 from mri_recon.utils import (
     OasisCenteredFFTPhysics,
-    OasisSliceDataset,
-    fastmri_measurement_to_image,
+    OasisCenterSliceFolderDataset,
+    FastMRIProstateDataset,
     fastmri_measurement_to_oasis_kspace,
-    image_to_kspace,
     kspace_to_image,
     save_kspace_plot,
 )
 
-FASTMRI_REPORT_DIR = Path("reports") / "fastmri_inference_plot"
-OASIS_REPORT_DIR = Path("reports") / "oasis_inference_plot"
-FASTMRI_REPORT_DIR.mkdir(parents=True, exist_ok=True)
-OASIS_REPORT_DIR.mkdir(parents=True, exist_ok=True)
 ALGORITHMS = [
-    "zero-filled",
-    # "conjugate-gradient",
+    # "zero-filled",
+    "conjugate-gradient",
     # "ram",
     # "dip",
-    "tv-pgd",
+    # "tv-pgd",
     # "wavelet-fista",
-    "tv-fista",
+    # "tv-fista",
     # "tv-pdhg",
     *list(EXPLICIT_UNET_ALGORITHMS),
 ]
 
 DISTORTIONS = [
-    "Cartesian undersampling (variable density)",
-    "Cartesian undersampling (uniform random)",
-    "Cartesian undersampling (uniform random, zero ACS)",
-    "Cartesian undersampling (equispaced)",
-    "Cartesian undersampling (equispaced, zero ACS)",
-    "Partial Fourier",
-    "Phase-encode ghosting",
-    "Segmented translation motion",
-    "Segmented rotational motion",
-    "Translation motion",
-    "Rotational motion",
-    "Off-center anisotropic Gaussian bias field",
-    "Gaussian bias field",
-    "Anisotropic LP",
-    "Hann taper LP",
-    "Kaiser taper LP",
-    "Gaussian noise",
-    "Isotropic LP",
-    "Radial high-pass emphasis",
+    {"BaseDistortion": {}},
+    {
+        "CartesianUndersamplingVariableDensity": {
+            "keep_fraction": 0.25,
+            "center_fraction": 0.125,
+        }
+    },
+    # {"CartesianUndersamplingUniformRandom": {
+    #     "keep_fraction": 0.25,
+    #     "center_fraction": 0.125,
+    # }},
+    # {"CartesianUndersamplingUniformRandomZeroACS": {
+    #     "keep_fraction": 0.25,
+    # }},
+    # {"CartesianUndersamplingEquispaced": {
+    #     "keep_fraction": 0.25,
+    #     "center_fraction": 0.125,
+    # }},
+    # {"CartesianUndersamplingEquispacedZeroACS": {
+    #     "keep_fraction": 0.25,
+    # }},
+    # {"PartialFourier": {
+    #     "side": "high",
+    # }},
+    # {"PhaseEncodeGhosting":  {
+    #     "line_period": 2,
+    #     "line_offset": 1,
+    #     "phase_error_degrees":  90.0,
+    #     "corrupted_line_scale": 1.0,
+    # }},
+    # {"SegmentedTranslationMotion": {
+    #     "shift_x_pixels": [0.0, 20.0, 50.0, -50.0],
+    #     "shift_y_pixels": [0.0, 10.0, -20.0, 20.0],
+    # }},
+    # {"SegmentedRotationalMotion": {
+    #     #"angle_radians": [0.0, torch.pi / 20, -torch.pi / 24, torch.pi / 16]
+    #     "angle_degrees": [0.0, 18.0, -15.0, 22.5],
+    # }},
+    # {"TranslationMotion": {
+    #     "shift_x_pixels": 60,
+    #     "shift_y_pixels": 10,
+    # }},
+    # {"RotationalMotion": {
+    #     # angle_radians=torch.pi / 6
+    #     "angle_degrees": 60.0,
+    # }},
+    {
+        "OffCenterAnisotropicGaussianBiasField": {
+            "width_x_fraction": 0.2,
+            "width_y_fraction": 0.35,
+            "center_x_fraction": 0.15,
+            "center_y_fraction": -0.1,
+            "edge_gain": 0.05,
+        }
+    },
+    {
+        "GaussianBiasField": {
+            "width_fraction": 0.35,
+            "edge_gain": 0.05,
+        }
+    },
+    # {"AnisotropicLP": {
+    #     "kx_radius_fraction": 1.0,
+    #     "ky_radius_fraction": 0.25,
+    # }},
+    # {"HannTaperLP": {
+    #     "radius_fraction": 0.35,
+    #     "transition_fraction": 0.4,
+    # }},
+    # {"KaiserTaperLP": {
+    #     "radius_fraction": 0.35,
+    #     "transition_fraction": 0.4,
+    #     "beta": 8.6,
+    # }},
+    # {"GaussianNoise": {
+    #     "sigma": 0.00001,
+    # }},
+    # {"IsotropicLP": {
+    #     "radius_fraction": 0.1,
+    # }},
+    # {"RadialHighPassEmphasis": {
+    #     "alpha": 0.4,
+    # }}
 ]
+
 METRICS = [
     "PSNR",
-    "NMSE",
-    "SSIM",
-    "HaarPSI",
-    "SharpnessIndex",
-    "BlurStrength",
+    # "NMSE",
+    # "SSIM",
+    # "HaarPSI",
+    # "SharpnessIndex",
+    # "BlurStrength",
 ]
-
-
-def choose_distortion(
-    name: str,
-    keep_fraction: float = 0.25,
-    center_fraction: float = 0.125,
-    cartesian_axis: int = -2,
-) -> BaseDistortion:
-    """Build one distortion operator for the inference comparison script.
-
-    The ``cartesian_axis`` is supplied by the active measurement convention:
-    FastMRI-native runs use the repository's existing axis, while OASIS-native
-    and FastMRI-to-OASIS runs use the centered OASIS axis.
-    """
-
-    match name:
-        case "Phase-encode ghosting":
-            return PhaseEncodeGhostingDistortion(
-                line_period=2,
-                line_offset=1,
-                phase_error_radians=torch.pi / 2,
-                corrupted_line_scale=1.0,
-            )
-        case "Cartesian undersampling (variable density)":
-            return CartesianUndersampling(
-                keep_fraction=keep_fraction,
-                center_fraction=center_fraction,
-                pattern="variable_density_random",
-                axis=cartesian_axis,
-                seed=42,
-            )
-        case "Cartesian undersampling (uniform random)":
-            return CartesianUndersampling(
-                keep_fraction=keep_fraction,
-                center_fraction=center_fraction,
-                pattern="uniform_random",
-                axis=cartesian_axis,
-                seed=42,
-            )
-        case "Cartesian undersampling (uniform random, zero ACS)":
-            return CartesianUndersampling(
-                keep_fraction=keep_fraction,
-                center_fraction=0.0,
-                pattern="uniform_random",
-                axis=cartesian_axis,
-                seed=42,
-            )
-        case "Cartesian undersampling (equispaced)":
-            return CartesianUndersampling(
-                keep_fraction=keep_fraction,
-                center_fraction=center_fraction,
-                pattern="equispaced",
-                axis=cartesian_axis,
-                seed=42,
-            )
-        case "Cartesian undersampling (equispaced, zero ACS)":
-            return CartesianUndersampling(
-                keep_fraction=keep_fraction,
-                center_fraction=0.0,
-                pattern="equispaced",
-                axis=cartesian_axis,
-                seed=42,
-            )
-        case "Partial Fourier":
-            return PartialFourierDistortion(
-                partial_fraction=0.7,
-                center_fraction=center_fraction,
-                axis=cartesian_axis,
-                side="high",
-            )
-        case "Anisotropic LP":
-            return AnisotropicResolutionReduction(
-                kx_radius_fraction=1.0,
-                ky_radius_fraction=0.25,
-            )
-        case "Hann taper LP":
-            return HannTaperResolutionReduction(
-                radius_fraction=0.35,
-                transition_fraction=0.4,
-            )
-        case "Kaiser taper LP":
-            return KaiserTaperResolutionReduction(
-                radius_fraction=0.35,
-                transition_fraction=0.4,
-                beta=8.6,
-            )
-        case "Radial high-pass emphasis":
-            return RadialHighPassEmphasisDistortion(alpha=0.4)
-        case "Isotropic LP":
-            return IsotropicResolutionReduction(radius_fraction=0.1)
-        case "Off-center anisotropic Gaussian bias field":
-            return OffCenterAnisotropicGaussianKspaceBiasField(
-                width_x_fraction=0.2,
-                width_y_fraction=0.35,
-                center_x_fraction=0.15,
-                center_y_fraction=-0.1,
-                edge_gain=0.3,
-            )
-        case "Translation motion":
-            return TranslationMotionDistortion(shift_x_pixels=60, shift_y_pixels=10)
-        case "Rotational motion":
-            return RotationalMotionDistortion(angle_radians=torch.pi / 6)
-        case "Segmented rotational motion":
-            return SegmentedRotationalMotionDistortion(
-                angle_radians=(0.0, torch.pi / 20, -torch.pi / 24, torch.pi / 16),
-            )
-        case "Segmented translation motion":
-            return SegmentedTranslationMotionDistortion(
-                shift_x_pixels=(0.0, 20.0, 50.0, -50.0),
-                shift_y_pixels=(0.0, 10.0, -20.0, 20.0),
-            )
-        case "Gaussian bias field":
-            return GaussianKspaceBiasField(width_fraction=0.35, edge_gain=0.4)
-        case "Gaussian noise":
-            return GaussianNoiseDistortion(sigma=0.00001)
-        case _:
-            raise ValueError(f"Unknown distortion {name!r}")
 
 
 def choose_metric(name: str) -> dinv.metric.Metric:
@@ -248,16 +177,45 @@ def prepare_measurement_sample(
     """
 
     if dataset_name == "oasis":
-        reference_image = sample_batch["x"].to(run_device)
-        return reference_image, image_to_kspace(reference_image)
+        x = sample_batch["x"].to(run_device)
+        y = image_to_shifted_kspace(x)
+        coil_maps = None
 
-    # FastMRI batches are tuples such as (x, y) or (x, y, params).
-    y_fastmri = sample_batch[1].to(run_device)
-    if use_oasis_fft_path:
-        reference_image = fastmri_measurement_to_image(y_fastmri, device=run_device)
-        return reference_image, fastmri_measurement_to_oasis_kspace(y_fastmri, device=run_device)
+    elif dataset_name in ("fastmri", "fastmri_multicoil"):
+        x = sample_batch[0].to(run_device)
+        y = sample_batch[1].to(run_device)
+        coil_maps = (
+            sample_batch[2]["coil_maps"].to(run_device)
+            if isinstance(sample_batch, (tuple, list))
+            and len(sample_batch) == 3
+            and "coil_maps" in sample_batch[2]
+            else None
+        )
+    elif dataset_name in ("cmrxrecon"):
+        x = sample_batch[0].to(run_device)
+        y = sample_batch[1].to(run_device)
+        coil_maps = (
+            sample_batch[2]["coil_maps"].to(run_device)
+            if isinstance(sample_batch, (tuple, list))
+            and len(sample_batch) == 3
+            and "coil_maps" in sample_batch[2]
+            else None
+        )
+    elif dataset_name == "fastmri_prostate":
+        # reference image, shape: (B, W, H): dtype float32
+        x = sample_batch[0].to(run_device)
 
-    return None, y_fastmri
+        # add zero imaginary channel:
+        # (B, H, W) -> (B, 2, H, W)
+        x = torch.stack([x, torch.zeros_like(x)], dim=1)
+
+        # (B, 2, H, W)
+        y = image_to_shifted_kspace(x)
+
+        if use_oasis_fft_path:
+            y = fastmri_measurement_to_oasis_kspace(y, coil_maps=coil_maps, device=run_device)
+
+    return x, y, coil_maps
 
 
 def build_physics_pair(
@@ -265,6 +223,7 @@ def build_physics_pair(
     distortion_operator: BaseDistortion,
     run_device: torch.device | str,
     use_oasis_fft_path: bool,
+    coil_maps: torch.Tensor | None = None,
 ) -> tuple[object, object]:
     """Build clean and distorted physics operators for the active path."""
 
@@ -276,11 +235,13 @@ def build_physics_pair(
     clean_physics = DistortedKspaceMultiCoilMRI(
         distortion=BaseDistortion(),
         img_size=(1, 2, *image_shape),
+        coil_maps=coil_maps,
         device=run_device,
     )
     distorted_physics = DistortedKspaceMultiCoilMRI(
         distortion=distortion_operator,
         img_size=(1, 2, *image_shape),
+        coil_maps=coil_maps,
         device=run_device,
     )
     return clean_physics, distorted_physics
@@ -295,21 +256,13 @@ if __name__ == "__main__":
         type=Path,
         help="Local FastMRI directory with raw k-space .h5 files or OASIS root directory.",
     )
-    parser.add_argument("--dataset", choices=("fastmri", "oasis"), default="fastmri")
+    parser.add_argument(
+        "--dataset",
+        choices=("fastmri", "oasis", "fastmri_multicoil", "cmrxrecon"),
+        default="fastmri",
+    )
 
     parser.add_argument("--distortion", type=str, default="", choices=DISTORTIONS)
-    parser.add_argument(
-        "--keep_fraction",
-        type=float,
-        default=0.25,
-        help="Fraction of k-space lines to keep for undersampling distortions.",
-    )
-    parser.add_argument(
-        "--center_fraction",
-        type=float,
-        default=0.125,
-        help="Fraction of low-frequency k-space lines to keep fully for undersampling distortions.",
-    )
 
     # algo related arguments
     parser.add_argument(
@@ -330,23 +283,47 @@ if __name__ == "__main__":
 
     selected_algorithms = ALGORITHMS if args.algorithm == "" else [args.algorithm]
     selected_distortions = DISTORTIONS if args.distortion == "" else [args.distortion]
-    for algo_name in selected_algorithms:
-        validate_algorithm_dataset_compatibility(args.dataset, algo_name)
 
-    # set up report dir
-    REPORT_DIR = OASIS_REPORT_DIR if args.dataset == "oasis" else FASTMRI_REPORT_DIR
+    # skip non-compatible algorithm-dataset pairs
+    selected_algorithms = [
+        algo_name
+        for algo_name in selected_algorithms
+        if compatible_dataset_with_reconstructor(args.dataset, algo_name)
+    ]
 
     # set up device, dataset, metrics
     device = dinv.utils.get_device()
     if args.dataset == "oasis":
-        split_csv = OASISSinglecoilUnetReconstructor.resolve_default_split_csv()
-        dataset = OasisSliceDataset(
+        dataset = OasisCenterSliceFolderDataset(
             data_path=args.source,
-            split_csv=split_csv,
-            sample_rate=0.6,
         )
-    else:
+    elif args.dataset == "fastmri":
         dataset = dinv.datasets.FastMRISliceDataset(str(args.source), slice_index="middle")
+    elif args.dataset == "fastmri_multicoil":
+        dataset = dinv.datasets.FastMRISliceDataset(
+            str(args.source),
+            slice_index="middle",
+            transform=dinv.datasets.MRISliceTransform(
+                estimate_coil_maps=True,
+                acs=15,
+            ),
+        )
+    elif args.dataset == "cmrxrecon":
+        dataset = dinv.datasets.CMRxReconSliceDataset(
+            str(args.source), data_dir="SingleCoil/Cine/TrainingSet/FullSample", apply_mask=False
+        )
+    elif args.dataset == "fastmri_prostate":
+        dataset = FastMRIProstateDataset(
+            data_path=str(args.source), num_samples=args.num_samples, slice_index="middle"
+        )
+
+    else:
+        raise NotImplementedError(f"Invalid dataset: {args.dataset}")
+
+    # set up report dir
+    REPORT_DIR = Path("reports") / Path(args.dataset + "_inference_plot")
+    REPORT_DIR.mkdir(parents=True, exist_ok=True)
+
     metrics = [choose_metric(m) for m in METRICS]
 
     for i, batch in enumerate(iter(torch.utils.data.DataLoader(dataset))):
@@ -355,83 +332,107 @@ if __name__ == "__main__":
             break
 
         for algo_name in selected_algorithms:
-            use_oasis_path = uses_oasis_centered_path(args.dataset, algo_name)
-            x_reference, y = prepare_measurement_sample(
-                sample_batch=batch,
-                dataset_name=args.dataset,
-                use_oasis_fft_path=use_oasis_path,
-                run_device=device,
-            )
-            algo = choose_reconstructor(
-                algo_name,
-                img_size=y.shape[-2:],
-                device=device,
-                verbose=args.verbose,
-                dataset=args.dataset,
-            ).to(device)
-
-            for distortion_name in selected_distortions:
-                distortion = choose_distortion(
-                    distortion_name,
-                    keep_fraction=args.keep_fraction,
-                    center_fraction=args.center_fraction,
-                    cartesian_axis=-1 if use_oasis_path else -2,
-                )
-
-                physics_clean, physics = build_physics_pair(
-                    image_shape=y.shape[-2:],
-                    distortion_operator=distortion,
-                    run_device=device,
+            try:
+                use_oasis_path = uses_oasis_centered_path(algo_name)
+                x_reference, y, coil_maps = prepare_measurement_sample(
+                    sample_batch=batch,
+                    dataset_name=args.dataset,
                     use_oasis_fft_path=use_oasis_path,
+                    run_device=device,
                 )
-                y_distorted = distortion.A(y)
+                algo = choose_reconstructor(
+                    algo_name,
+                    img_size=y.shape[-2:],
+                    device=device,
+                    verbose=args.verbose,
+                    dataset=args.dataset,
+                ).to(device)
 
-                # generate reference reconstructions (CG) for both clean and distorted k-space
-                # without correction for the distortion, i.e. using physics_clean in both cases
-                if use_oasis_path:
-                    x_clean = x_reference
-                    x_distorted = kspace_to_image(y_distorted)
-                else:
-                    x_clean = ConjugateGradientReconstructor()(y, physics_clean)
-                    x_distorted = ConjugateGradientReconstructor()(y_distorted, physics_clean)
+                for selected_distortion in selected_distortions:
+                    for distortion_name, distortion_params in selected_distortion.items():
+                        distortion = choose_distortion_with_params(
+                            distortion_name,
+                            **distortion_params,
+                            cartesian_axis=-1 if use_oasis_path else -2,
+                        )
 
-                save_kspace_plot(
-                    y,
-                    y_distorted,
-                    REPORT_DIR / f"DISTORTION_{algo_name}_{distortion_name}_sample_{i}.png",
-                    distortion_name,
-                )
+                        physics_clean, physics = build_physics_pair(
+                            image_shape=y.shape[-2:],
+                            distortion_operator=distortion,
+                            run_device=device,
+                            use_oasis_fft_path=use_oasis_path,
+                            coil_maps=coil_maps,
+                        )
+                        y_distorted = distortion.A(y)
 
-                print(f"Evaluating algo {algo_name}, distortion {distortion_name}, sample {i}...")
+                        # generate reference reconstructions (CG) for both clean and distorted k-space
+                        # without correction for the distortion, i.e. using physics_clean in both cases
+                        if use_oasis_path:
+                            x_clean = x_reference
+                            x_distorted = kspace_to_image(y_distorted)
+                        else:
+                            x_clean = ConjugateGradientReconstructor()(y, physics_clean)
+                            x_distorted = ConjugateGradientReconstructor()(
+                                y_distorted, physics_clean
+                            )
 
-                # actual reconstruction with the algo being evaluated
-                x_uncorrected = algo(y_distorted, physics_clean)
-                x_corrected = algo(y_distorted, physics)
+                        if x_clean.shape[-2:] != x_reference.shape[-2:]:
+                            x_clean = physics_clean.crop(x_clean, shape=x_reference.shape[-2:])
 
-                print("done!")
+                        if x_distorted.shape[-2:] != x_reference.shape[-2:]:
+                            x_distorted = physics.crop(x_distorted, shape=x_reference.shape[-2:])
 
-                dinv.utils.plot(
-                    {
-                        "Undistorted ksp, CG recon": x_clean,
-                        "Distorted ksp, CG recon": x_distorted,
-                        f"Distorted ksp, {algo_name} recon, uncorrected": x_uncorrected,
-                        f"Distorted ksp, {algo_name} recon, corrected": x_corrected,
-                    },
-                    subtitles=[
-                        "",
-                        "",
-                        "\n".join(
-                            f"{m.__class__.__name__} {m(x_uncorrected, x_clean).item():.2f}"
-                            for m in metrics
-                        ),
-                        "\n".join(
-                            f"{m.__class__.__name__} {m(x_corrected, x_clean).item():.2f}"
-                            for m in metrics
-                        ),
-                    ],
-                    show=False,
-                    close=True,
-                    suptitle=f"Algo {algo_name}, distortion {distortion_name}, Sample {i}",
-                    save_fn=REPORT_DIR / f"ALGO_{algo_name}_{distortion_name}_sample_{i}.png",
-                    fontsize=3,
-                )
+                        save_kspace_plot(
+                            y,
+                            y_distorted,
+                            REPORT_DIR / f"DISTORTION_{algo_name}_{distortion_name}_sample_{i}.png",
+                            distortion_name,
+                        )
+
+                        print(
+                            f"Evaluating algo {algo_name}, distortion {distortion_name}, sample {i}..."
+                        )
+
+                        # actual reconstruction with the algo being evaluated
+                        x_uncorrected = algo(y_distorted, physics_clean)
+
+                        # crop recostructed image to reference image size:
+                        if x_uncorrected.shape[-2:] != x_reference.shape[-2:]:
+                            x_uncorrected = physics_clean.crop(
+                                x_uncorrected, shape=x_reference.shape[-2:]
+                            )
+
+                        x_corrected = algo(y_distorted, physics)
+                        if x_corrected.shape[-2:] != x_reference.shape[-2:]:
+                            x_corrected = physics.crop(x_corrected, shape=x_reference.shape[-2:])
+
+                        print("done!")
+
+                        dinv.utils.plot(
+                            {
+                                "Undistorted ksp, CG recon": x_clean,
+                                "Distorted ksp, CG recon": x_distorted,
+                                f"Distorted ksp, {algo_name} recon, uncorrected": x_uncorrected,
+                                f"Distorted ksp, {algo_name} recon, corrected": x_corrected,
+                            },
+                            subtitles=[
+                                "",
+                                "",
+                                "\n".join(
+                                    f"{m.__class__.__name__} {m(x_uncorrected, x_clean).item():.2f}"
+                                    for m in metrics
+                                ),
+                                "\n".join(
+                                    f"{m.__class__.__name__} {m(x_corrected, x_clean).item():.2f}"
+                                    for m in metrics
+                                ),
+                            ],
+                            show=False,
+                            close=True,
+                            suptitle=f"Algo {algo_name}, distortion {distortion_name}, Sample {i}",
+                            save_fn=REPORT_DIR
+                            / f"ALGO_{algo_name}_{distortion_name}_sample_{i}.png",
+                            fontsize=3,
+                        )
+            except Exception as e:
+                print(f"Error processing algo {algo_name}, sample {i}: {e}")

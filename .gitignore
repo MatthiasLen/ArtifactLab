@@ -9,3 +9,9 @@ data/
 *_cache/
 reports/
 .python-version
+*.ckpt
+*.pt
+manifest.json
+# Ignore all yaml files in the examples folder except config.yaml as template:
+examples/*.yaml
+!examples/config.yaml

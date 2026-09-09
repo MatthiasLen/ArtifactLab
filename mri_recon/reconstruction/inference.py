@@ -28,29 +28,36 @@ EXPLICIT_UNET_ALGORITHMS = (FASTMRI_UNET_ALGORITHM, *tuple(OASIS_UNET_ALGORITHMS
 
 
 def uses_oasis_centered_path(
-    dataset: str,
     algorithm: str,
 ) -> bool:
     """Return whether inference should use the centered OASIS k-space path.
 
-    OASIS samples always use the centered FFT convention. FastMRI only switches
-    to that path when the selected algorithm is one of the explicit OASIS U-Net
+    The centered FFT path is only used with the explicit OASIS U-Net
     variants.
     """
-
-    if dataset == "oasis":
-        return True
     return algorithm in OASIS_UNET_ALGORITHMS
 
 
-def validate_algorithm_dataset_compatibility(dataset: str, algorithm: str) -> None:
-    """Raise a clear error when an explicit algorithm is incompatible with a dataset."""
+def compatible_dataset_with_reconstructor(dataset: str, reconstructor_name: str) -> bool:
+    """Check if dataset and trained reconstructor are compatible"""
 
-    if dataset == "oasis" and algorithm == FASTMRI_UNET_ALGORITHM:
-        raise ValueError(
-            "The algorithm 'unet-fastmri' is not supported on the OASIS dataset. "
-            "Use one of the explicit OASIS U-Net algorithms instead."
-        )
+    # fast mri u-net is only trained with knee data
+    if reconstructor_name == FASTMRI_UNET_ALGORITHM:
+        if dataset == "fastmri_knee":
+            return True
+        else:
+            return False
+
+    # oasis is only trained with brain data
+    elif reconstructor_name in OASIS_UNET_ALGORITHMS:
+        if dataset in ["fastmri_brain", "oasis"]:
+            return True
+        else:
+            return False
+
+    # all other (classic) reconstructors work with any dataset:
+    else:
+        return True
 
 
 def choose_reconstructor(
@@ -58,7 +65,7 @@ def choose_reconstructor(
     img_size: tuple = (640, 368),
     device: torch.device | str = "cpu",
     verbose: bool = False,
-    dataset: str = "fastmri",
+    dataset: str | None = None,
 ) -> dinv.models.Reconstructor:
     """Create a reconstructor while enforcing the supported dataset/model matrix.
 
@@ -78,7 +85,10 @@ def choose_reconstructor(
         explicit algorithm names that are dataset-specific.
     """
 
-    validate_algorithm_dataset_compatibility(dataset, name)
+    if dataset is not None and not compatible_dataset_with_reconstructor(dataset, name):
+        raise ValueError(
+            f"Reconstructor {name} is not compatible with dataset {dataset}, because it was trained with a different image domain."
+        )
 
     match name:
         case "zero-filled":

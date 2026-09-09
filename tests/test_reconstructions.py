@@ -17,7 +17,7 @@ from mri_recon.reconstruction.inference import (
     OASIS_UNET_ALGORITHMS,
     choose_reconstructor,
     uses_oasis_centered_path,
-    validate_algorithm_dataset_compatibility,
+    compatible_dataset_with_reconstructor,
 )
 from mri_recon.distortions import DistortedKspaceMultiCoilMRI
 
@@ -245,21 +245,22 @@ def test_oasis_singlecoil_unet_reconstructor_uses_packaged_checkpoint_defaults(
 
 
 def test_validate_algorithm_dataset_compatibility_accepts_supported_explicit_unets():
-    validate_algorithm_dataset_compatibility("fastmri", FASTMRI_UNET_ALGORITHM)
-    validate_algorithm_dataset_compatibility("fastmri", "unet-oasis-acceleration8")
-    validate_algorithm_dataset_compatibility("oasis", "unet-oasis-acceleration4")
+    assert compatible_dataset_with_reconstructor("fastmri_knee", FASTMRI_UNET_ALGORITHM)
+    assert compatible_dataset_with_reconstructor("fastmri_brain", "unet-oasis-acceleration8")
+    assert compatible_dataset_with_reconstructor("oasis", "unet-oasis-acceleration4")
 
 
 def test_validate_algorithm_dataset_compatibility_rejects_unsupported_oasis_fastmri_combo():
-    with pytest.raises(ValueError, match="unet-fastmri"):
-        validate_algorithm_dataset_compatibility("oasis", FASTMRI_UNET_ALGORITHM)
+    assert not compatible_dataset_with_reconstructor("oasis", FASTMRI_UNET_ALGORITHM)
+    assert not compatible_dataset_with_reconstructor("fastmri_brain", FASTMRI_UNET_ALGORITHM)
+    assert not compatible_dataset_with_reconstructor("fastmri_prostate", FASTMRI_UNET_ALGORITHM)
+    assert not compatible_dataset_with_reconstructor("fastmri_knee", "unet-oasis-acceleration10")
 
 
-def test_uses_oasis_centered_path_tracks_dataset_and_explicit_algorithm():
-    assert uses_oasis_centered_path("oasis", FASTMRI_UNET_ALGORITHM) is True
-    assert uses_oasis_centered_path("fastmri", "unet-oasis-acceleration8") is True
-    assert uses_oasis_centered_path("fastmri", FASTMRI_UNET_ALGORITHM) is False
-    assert uses_oasis_centered_path("fastmri", "tv-pgd") is False
+def test_uses_oasis_centered_algorithm():
+    assert uses_oasis_centered_path(FASTMRI_UNET_ALGORITHM) is False
+    assert uses_oasis_centered_path("unet-oasis-acceleration4") is True
+    assert uses_oasis_centered_path("tv-pgd") is False
 
 
 def test_choose_reconstructor_selects_oasis_unet_for_fastmri_when_requested(monkeypatch):
@@ -280,7 +281,7 @@ def test_choose_reconstructor_selects_oasis_unet_for_fastmri_when_requested(monk
 
     reconstructor = choose_reconstructor(
         "unet-oasis-acceleration8",
-        dataset="fastmri",
+        dataset="oasis",
         device="cpu",
     )
 
@@ -302,7 +303,7 @@ def test_choose_reconstructor_uses_fastmri_unet_by_default(monkeypatch):
 
     reconstructor = choose_reconstructor(
         FASTMRI_UNET_ALGORITHM,
-        dataset="fastmri",
+        dataset="fastmri_knee",
         device="cpu",
     )
 
@@ -327,7 +328,7 @@ def test_choose_reconstructor_supports_all_explicit_oasis_algorithms(monkeypatch
     for algorithm_name in OASIS_UNET_ALGORITHMS:
         reconstructor = choose_reconstructor(
             algorithm_name,
-            dataset="fastmri",
+            dataset="fastmri_brain",
             device="cpu",
         )
         assert isinstance(reconstructor, Marker)

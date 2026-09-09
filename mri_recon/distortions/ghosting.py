@@ -36,7 +36,8 @@ class PhaseEncodeGhostingDistortion(BaseDistortion):
         self,
         line_period: int = 2,
         line_offset: int = 1,
-        phase_error_radians: float = torch.pi / 2,
+        phase_error_radians: float | None = None,
+        phase_error_degrees: float | None = None,
         corrupted_line_scale: float = 1.0,
         ghost_axis: int = -2,
     ) -> None:
@@ -52,6 +53,11 @@ class PhaseEncodeGhostingDistortion(BaseDistortion):
 
         self.line_period = int(line_period)
         self.line_offset = int(line_offset)
+        if phase_error_radians is None:
+            if phase_error_degrees is None:
+                raise ValueError("phase_error_radians or phase_error_degrees must not be None")
+            else:
+                phase_error_radians = 2 * torch.pi * phase_error_degrees / 360.0
         self.phase_error_radians = float(phase_error_radians)
         self.corrupted_line_scale = float(corrupted_line_scale)
         self.ghost_axis = ghost_axis

@@ -75,6 +75,50 @@ def _validate_cartesian_kspace_tensor(y: torch.Tensor) -> None:
         raise ValueError(f"Spatial k-space dimensions must be positive, got shape {tuple(y.shape)}")
 
 
+def shifted_kspace_to_image(y: torch.Tensor) -> torch.Tensor:
+    """Convert centered channel-first k-space to complex images.
+
+    Parameters
+    ----------
+    y : torch.Tensor
+        Centered k-space tensor with shape ``(B, 2, H, W)``.
+
+    Returns
+    -------
+    torch.Tensor
+        Complex image tensor with shape ``(B, 2, H, W)``.
+    """
+
+    y_complex = torch.view_as_complex(y.movedim(1, -1).contiguous())
+    x_complex = torch.fft.fftshift(
+        torch.fft.ifft2(torch.fft.ifftshift(y_complex, dim=(-2, -1)), dim=(-2, -1), norm="ortho"),
+        dim=(-2, -1),
+    )
+    return torch.view_as_real(x_complex).movedim(-1, 1).contiguous()
+
+
+def image_to_shifted_kspace(x: torch.Tensor) -> torch.Tensor:
+    """Convert channel-first complex images to centered k-space.
+
+    Parameters
+    ----------
+    x : torch.Tensor
+        Complex image tensor with shape ``(B, 2, H, W)``.
+
+    Returns
+    -------
+    torch.Tensor
+        Centered k-space tensor with shape ``(B, 2, H, W)``.
+    """
+
+    x_complex = torch.view_as_complex(x.movedim(1, -1).contiguous())
+    y_complex = torch.fft.fftshift(
+        torch.fft.fft2(torch.fft.ifftshift(x_complex, dim=(-2, -1)), dim=(-2, -1), norm="ortho"),
+        dim=(-2, -1),
+    )
+    return torch.view_as_real(y_complex).movedim(-1, 1).contiguous()
+
+
 class BaseDistortion(dinv.physics.LinearPhysics):
     """Base class for deterministic k-space distortions.
 
@@ -176,12 +220,15 @@ class DistortedKspaceMultiCoilMRI(dinv.physics.MultiCoilMRI):
 
     def A(self, x: torch.Tensor) -> torch.Tensor:
         y = super().A(x)
-        y = y.squeeze(2)  # remove coil dim if singlecoil
+
+        y = y.squeeze(2)  # remove coil dimension if single coil
+
         return self.distortion(y)
 
     def A_adjoint(self, y: torch.Tensor) -> torch.Tensor:
         if len(y.shape) == (5 if self.three_d else 4):
-            y = y.unsqueeze(2)  # add coil dim if singlecoil
+            y = y.unsqueeze(2)  # add coil dimension for single coil
 
         y = self.distortion.A_adjoint(y)
+
         return super().A_adjoint(y)
